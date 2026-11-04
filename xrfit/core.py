@@ -183,13 +183,14 @@ def excitation(cfg):
 
 
 def scatter_energies(cfg):
-    """[(E_rayleigh, E_compton)] for every enabled beam row that has the scatter flag."""
+    """[(E_rayleigh, E_compton, weight)] for every enabled beam row that has the scatter flag; weights sum to 1."""
     out, c = [], 1 - math.cos(math.radians(cfg.scatter_angle))
     for b in cfg.beam:
         if b.get("use", True) and b.get("scatter") and float(b["weight"]) > 0:
             E = float(b["energy"])
-            out.append((E, E / (1 + E * c / ELECTRON_MC2)))
-    return out
+            out.append((E, E / (1 + E * c / ELECTRON_MC2), float(b["weight"])))
+    tot = sum(w for *_, w in out)
+    return [(Er, Ec, w / tot) for Er, Ec, w in out]
 
 
 def design(cfg, p, ch):
@@ -201,10 +202,15 @@ def design(cfg, p, ch):
         cols.append(sum(w * peak(e, E, p, de) for E, w in lines))
         names.append(name); nonneg.append(True)
     pc = dict(p, noise=math.hypot(p["noise"], p.get("compton_broad", 0.0)))
-    for Er, Ec in scatter_energies(cfg):
-        for label, E, pp in (("Rayleigh", Er, p), ("Compton", Ec, pc)):
-            if e.min() - 1 < E < e.max() + 1:
-                cols.append(peak(e, E, pp, de)); names.append(f"{label} {Er:g}"); nonneg.append(True)
+    # All scatter-flagged beam lines share ONE Rayleigh and ONE Compton amplitude, their relative sizes tied to the
+    # beam weights (like the fluorescence lines of an element). One free amplitude per group keeps close lines such as
+    # Rh Ka1/Ka2/Kb from competing with each other or with element peaks.
+    sc = [t for t in scatter_energies(cfg) if e.min() - 1 < t[0] < e.max() + 1 or e.min() - 1 < t[1] < e.max() + 1]
+    if sc:
+        single = len(sc) == 1
+        for label, idx, pp in (("Rayleigh", 0, p), ("Compton", 1, pc)):
+            cols.append(sum(w * peak(e, t[idx], pp, de) for t in sc for w in [t[2]]))
+            names.append(f"{label} {sc[0][0]:g}" if single else label); nonneg.append(True)
     if cfg.sum_peaks:
         main = [(n, max(l, key=lambda t: t[1])[0]) for n, l in groups]
         for i in range(len(main)):

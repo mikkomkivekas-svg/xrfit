@@ -126,3 +126,26 @@ def test_beam_scatter_and_polychromatic():
             webapp.cfg_from_json({"beam": bad}); assert False
         except webapp.ApiError:
             pass
+
+
+def test_tube_characteristic_lines_share_one_scatter_group():
+    import numpy as np
+    from xrfit import core, demo, tube, webapp
+    ref = demo.synthetic_spectrum()
+    p = core.Config().params(); p.update(zero=0.0237, gain=0.0099951, noise=0.12, tail_frac=0.05)
+    e = p["zero"] + p["gain"] * np.arange(len(ref.counts)); g = p["gain"]
+    rows = tube.tube_beam("Mo", 35)
+    lines = [r for r in rows if r["scatter"]]
+    assert len(lines) >= 3
+    tot = sum(r["weight"] for r in lines)
+    pc = dict(p, noise=np.hypot(.12, .2))
+    ray = sum(r["weight"] / tot * core.peak(e, r["energy"], p, g) for r in lines)
+    com = sum(r["weight"] / tot * core.peak(e, r["energy"] / (1 + r["energy"] / core.ELECTRON_MC2), pc, g) for r in lines)
+    spec = demo.synthetic_spectrum()
+    spec.counts = ref.counts + np.random.default_rng(5).poisson(6000 * ray + 3000 * com)
+    cfg = webapp.cfg_from_json({**demo.SUGGEST, "emax": 20.3, "beam": rows})
+    r = core.fit(spec, cfg)
+    assert {"Rayleigh", "Compton"} <= set(r.areas) and r.chi2red < 2
+    base = core.fit(ref, webapp.cfg_from_json({**demo.SUGGEST, "emax": 20.3, "beam": [{"energy": 35, "weight": 1}]}))
+    for n in ("Fe-K", "Cu-K", "Zn-K", "Pb-L"):
+        assert abs(r.areas[n][0] - base.areas[n][0]) < 3 * r.areas[n][1]

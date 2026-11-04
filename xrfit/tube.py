@@ -46,7 +46,8 @@ def tube_beam(anode="Rh", kv=40.0, bins=24, emin=1.5, line_share=0.25):
     if lines and line_share > 0:
         tot = sum(r for _, r in lines)
         rows += [{"energy": E, "weight": line_share * r / tot, "use": True, "scatter": False} for E, r in lines]
-        rows[len(rows) - len(lines)]["scatter"] = True      # main line scatters (Rayleigh + Compton)
+        for r in rows[-len(lines):]:
+            r["scatter"] = True      # anode lines scatter (Rayleigh + Compton); they share one amplitude in the fit
     else:
         for r in rows: r["weight"] /= (1 - line_share) or 1
     return sorted(rows, key=lambda r: r["energy"])
