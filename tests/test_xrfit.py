@@ -180,7 +180,7 @@ def test_matrix_round_trip():
         m = M.Model(mx_true, names, core.excitation(cfg), "xraylib")
         fr = [{e["element"]: e["value"] for e in L["entries"]} for L in m.layers]
         mass = [float("inf") if L["t_um"] is None else L["rho"] * L["t_um"] * 1e-4 for L in m.layers]
-        f = m.predict(fr, mass)
+        f = m.predict(fr, mass, True)       # the "measurement" includes secondary excitation
         return NS(cfg=cfg, live_time=100.0, areas={n: (K * v * 100, (K * v * 100) ** 0.5) for n, v in f.items()})
 
     geo = {"alpha_in": 45, "alpha_out": 45}
@@ -204,3 +204,37 @@ def test_matrix_round_trip():
     # the same element unknown in two layers is rejected
     with pytest.raises(M.MatrixError):
         M.solve({"layers": [{"composition": "Fe ?", "density": 7, "thickness_um": 1}, {"composition": "Fe ?", "density": 7}], **geo}, res)
+
+
+def test_matrix_secondary_excitation_and_layer_ratios():
+    import math
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M
+    cfg = core.Config(beam=[{"energy": 17.44, "weight": 1.0}])
+    exc = core.excitation(cfg)
+    geo = {"alpha_in": 45, "alpha_out": 45}
+    # Ni K lines excite Fe K in a 50/50 alloy: a large effect that must be there, and Ni cannot be enhanced by Fe
+    m = M.Model({"layers": [{"composition": "Fe 50\nNi 50", "density": 8.3}], **geo}, ["Fe-K", "Ni-K"], exc, "xraylib")
+    fr = [{"Fe": 0.5, "Ni": 0.5}]
+    p0, p1 = m.predict(fr, [math.inf]), m.predict(fr, [math.inf], True)
+    assert 0.2 < p1["Fe-K"] / p0["Fe-K"] - 1 < 0.45 and p1["Ni-K"] == p0["Ni-K"]
+    # the same two elements unknown in the coating AND the substrate: the ratio in each layer comes back when
+    # Kalpha and Kbeta are fitted as separate groups (two measurements per element)
+    names = ["Cu-Ka", "Cu-Kb", "Zn-Ka", "Zn-Kb"]
+    truth = {"layers": [{"composition": "Cu 80\nZn 20", "density": 8.7, "thickness_um": 5},
+                        {"composition": "Cu 60\nZn 40", "density": 8.5}], **geo}
+    m = M.Model(truth, names, exc, "xraylib")
+    fr = [{"Cu": 0.8, "Zn": 0.2}, {"Cu": 0.6, "Zn": 0.4}]
+    f = m.predict(fr, [8.7 * 5e-4, math.inf], True)
+    res = NS(cfg=cfg, live_time=100.0, areas={n: (3e7 * v * 100, (3e7 * v * 100) ** 0.5) for n, v in f.items()})
+    mx = {"layers": [{"composition": "Cu ?\nZn ?", "density": 8.7, "thickness_um": 5},
+                     {"composition": "Cu ?\nZn ?", "density": 8.5}], "fit_k": False, "k": 3e7, **geo}
+    r = M.solve(mx, res)
+    ratio = [L["ratios"][0] for L in r["layers"]]            # Zn relative to Cu, by mass
+    assert abs(ratio[0]["mass"] - 0.25) < 0.01 and abs(ratio[1]["mass"] - 2 / 3) < 0.02
+    assert abs(r["layers"][0]["composition"][0]["at_pct"] + r["layers"][0]["composition"][1]["at_pct"] - 100) < 1e-6
+    # only one line group per element cannot separate two layers: refused with a hint
+    import pytest
+    res1 = NS(cfg=cfg, live_time=100.0, areas={"Cu-K": (1e5, 300.0), "Zn-K": (5e4, 220.0)})
+    with pytest.raises(M.MatrixError, match="Fit α, β and γ"):
+        M.solve(mx, res1)

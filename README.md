@@ -32,7 +32,11 @@ Composition lines: `Fe 70` (wt %), `Cr ?` (amount found from the fitted lines), 
 
 where σ is the production cross section used elsewhere in xrfit, μ the mass attenuation of the layer, M = density × thickness (infinite for the last layer), T_above the attenuation of the layers above, and ε the detector path (air, Be window, Si thickness). The beam can be polychromatic (the incident spectrum list). Unknown amounts, **K** (flux × solid angle, lumped) and layer thicknesses marked *fit* are found by least squares with a start from a Criss–Birks style iteration. K can be fitted when the amounts sum to 100 %; with a balance element, give K from a standard (all amounts fixed, *Fit K* on, then copy the value). Uncertainties come from the fit covariance (shown only when there are fewer unknowns than line groups).
 
-**Left out:** secondary and tertiary excitation (fluorescence of one element exciting another), which PyMca includes; scatter; roughness; grazing-angle effects; the matrix effect on the ratios inside an L-line group. Absorption data are the Elam, Ravel and Sieber tables (cm²/g, 0.1 to 800 keV) via the public-domain XrayDB compilation (`tools/build_attenuation.py`).
+**Secondary excitation** (a line of one element exciting another, such as Ni K lines enhancing Fe K) is included by default: every line of the sample whose energy is above a fitted line's edge is treated as an isotropic source, the sample is cut into thin cells, and the cell-to-cell transfer uses exact double integrals of the exponential-integral kernel. For a bulk Fe-Ni alloy it agrees with a brute-force numerical integration to 0.03 %. Switch it off with `matrix secondary off`.
+
+**The same element in several layers.** An element may be unknown in more than one layer (for example Cu and Zn in both a coating and its substrate) as long as there are at least as many independent measurements of it as layers: fit α, β and γ lines separately, so Kα and Kβ (absorbed differently, hence sensitive to depth) are two data points. Every layer reports weight and atomic percent and the ratios of its other elements to its first unknown element (by mass and by atoms), with uncertainties from the fit covariance, which are given also when the problem is exactly determined (then they are statistical only). Strongly correlated quantities are flagged.
+
+**Still left out:** tertiary excitation, scatter, roughness, and feeding the matrix-corrected line ratios back into the peak fit (inside an L group the Lα:Lβ ratio is fixed from the cross sections at the beam energy). A balance element needs K from a standard, because with only relative intensities K and the absolute amounts cannot be separated. Absorption data are the Elam, Ravel and Sieber tables (cm²/g, 0.1 to 800 keV) via the public-domain XrayDB compilation (`tools/build_attenuation.py`).
 
 ## Browser interface
 
@@ -95,7 +99,7 @@ Known limits of the source data
 - 2003 values; current xraylib releases differ slightly.
 
 ## Not implemented (vs. PyMca)
-Secondary/tertiary excitation in the matrix calculation, an Ebel tube model with window and filter, beam polarisation,
+Tertiary excitation, an Ebel tube model with window and filter, beam polarisation,
 HDF5/EDF/SPEC I/O, XRF mapping.
 
 ## JaBS compatibility

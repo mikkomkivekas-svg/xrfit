@@ -118,6 +118,7 @@ class Shell(cmd.Cmd):
         "matrix layer <i> density <g/cm3> | thickness <um> [fit] | name <text>\n"\
         "matrix angles <beam deg> <detector deg>   angles to the surface (default 45 45)\n"\
         "matrix k <value|fit>            instrument factor (flux x solid angle), or fit it\n"\
+        "matrix secondary on|off         secondary excitation (default on)\n"\
         "matrix detector si=0.5 be=0 air=0   Si thickness (mm), Be window (um), air path (mm)\n"\
         "then: fit, quantify matrix"
         t = shlex.split(a)
@@ -147,6 +148,8 @@ class Shell(cmd.Cmd):
             elif t[:1] == ["k"]:
                 if t[1] == "fit": mx["fit_k"] = True
                 else: mx["k"], mx["fit_k"] = float(t[1]), False
+            elif t[:1] == ["secondary"]:
+                mx["secondary"] = t[1].lower() in ("1", "on", "true", "yes")
             elif t[:1] == ["detector"]:
                 for kv in t[1:]:
                     k, v = kv.split("=")
@@ -276,7 +279,10 @@ class Shell(cmd.Cmd):
                 print(f"  {L['name']}: {th}, {L['density']:g} g/cm3")
                 for c in L["composition"]:
                     sg = f" +- {c['sigma']:.3g}" if c["sigma"] is not None else ""
-                    print(f"      {c['element']:3s} {c['wt_pct']:9.4f} wt %{sg}   [{c['mode']}]")
+                    print(f"      {c['element']:3s} {c['wt_pct']:9.4f} wt %{sg}   {c['at_pct']:8.4f} at %   [{c['mode']}]")
+                for q in L["ratios"]:
+                    es = lambda v, e: f"{v:.5g}" + (f" +- {e:.2g}" if e is not None else "")
+                    print(f"      {q['element']}/{q['ref']}: {es(q['mass'], q['mass_sigma'])} by mass, {es(q['atom'], q['atom_sigma'])} by atoms")
             print("  group        measured cps  calculated cps  calc/meas")
             for g in r["groups"]:
                 print(f"  {g['name']:10s} {g['measured']:13.5g} {g['predicted']:15.5g} {g['ratio'] if g['ratio'] is None else round(g['ratio'], 4)!s:>10}")

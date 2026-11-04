@@ -270,6 +270,7 @@ table.data tr:hover td { background: var(--surface-2); }
           <div class="field"><label for="mx-k">Instrument factor K</label><input type="text" id="mx-k" inputmode="decimal" placeholder="e.g. 5e7"></div>
         </div>
         <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="mx-fitk"> Fit K from the data</label></div>
+        <div class="row"><label class="chk"><input type="checkbox" id="mx-sec"> Include secondary excitation</label></div>
         <div id="layers"></div>
         <div class="grid2" style="margin-top:10px">
           <div class="field"><label for="a-in">Beam angle to surface (°)</label><input type="number" id="a-in" min="1" max="90" step="any"></div>
@@ -284,7 +285,7 @@ table.data tr:hover td { background: var(--surface-2); }
         </details>
         <div class="row" style="margin-top:10px"><button class="btn" id="mx-run">Calculate composition</button></div>
         <div class="err" id="mx-err" role="alert" hidden></div>
-        <p class="hint">Layer 1 faces the beam and detector. The last layer is infinitely thick. Write each element as <b>Fe 70</b> (wt %), <b>Cr ?</b> (found from the fitted lines) or <b>O balance</b> (the rest). A formula such as <b>SiO2</b> works too. Needs a fit first.</p>
+        <p class="hint">Layer 1 faces the beam and detector. The last layer is infinitely thick. Write each element as <b>Fe 70</b> (wt %), <b>Cr ?</b> (found from the fitted lines) or <b>O balance</b> (the rest). A formula such as <b>SiO2</b> works too. The same element may be unknown in several layers if you tick <b>Fit α, β and γ lines separately</b> (Kα and Kβ are absorbed differently, which tells the depths apart). Needs a fit first.</p>
       </section>
 
       <section class="blk">
@@ -400,7 +401,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 
 /* ============================== state ============================== */
 const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false });
-const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0 } });
+const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, secondary: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0 } });
 const DEFAULT_CFG = () => ({
   elements: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
   free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
@@ -880,13 +881,14 @@ $("#n-layers").onchange = e => {
   renderLayers();
 };
 function syncMatrix() {
-  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-k").disabled = false;
+  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
   $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out;
   const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm;
   renderLayers();
 }
 $("#mx-k").addEventListener("input", e => { mx().k = e.target.value; });
 $("#mx-fitk").onchange = e => { mx().fit_k = e.target.checked; };
+$("#mx-sec").onchange = e => { mx().secondary = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
 for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
 $("#mx-run").onclick = async () => {
@@ -907,21 +909,23 @@ function renderMatrixPane() {
   if (!r) { p.append(h("p", { class: "hint", style: "margin:0", text: "Describe the layers under Sample matrix, fit the spectrum, then press Calculate composition." })); return; }
   const pm = (v, s, d = 2) => s == null ? fmtSig(v, 4) : `${v.toFixed(d)} ± ${s.toFixed(d)}`;
   p.append(h("div", { class: "summary" },
-    h("div", {}, h("span", { class: "lbl", text: "Instrument factor K" }), h("span", { class: "big num", text: fmtSig(r.k, 4) }), r.k_sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + fmtSig(r.k_sigma, 2) }) : null, h("span", { style: "color:var(--text-3);margin-left:6px", text: r.k_fitted ? "fitted" : "given" })),
+    h("div", {}, h("span", { class: "lbl", text: "Instrument factor K" }), h("span", { class: "big num", text: fmtSig(r.k, 4) }), r.k_sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + fmtSig(r.k_sigma, 2) }) : null, h("span", { style: "color:var(--text-3);margin-left:6px", text: r.k_fitted ? "fitted" : "given" }),
+      r.k_fitted ? h("button", { class: "btn quiet", style: "margin-left:6px", title: "Copy this K into the Sample matrix section and stop fitting it, for example to use a standard's K on a sample", onclick: () => { mx().k = String(+r.k.toPrecision(6)); mx().fit_k = false; syncMatrix(); setStatus("K from the standard is now fixed in the Sample matrix section."); } }, "Use this K from now on") : null),
     h("div", {}, h("span", { class: "lbl", text: "Fitted quantities" }), h("span", { class: "num", text: `${r.n_free} from ${r.n_data} line groups` })),
     r.chi2red != null ? h("div", {}, h("span", { class: "lbl", text: "Reduced χ²" }), h("span", { class: "num", text: r.chi2red.toFixed(2) })) : null));
   for (const L of r.layers) {
     const t = L.infinite ? "infinitely thick" : `${L.fit_thickness && L.thickness_sigma != null ? pm(L.thickness_um, L.thickness_sigma, 2) : fmtSig(L.thickness_um, 4)} µm${L.fit_thickness ? " (fitted)" : ""}`;
     p.append(h("div", { class: "mxlayer" }, h("h3", {}, L.name, h("span", { text: `${t}, ${fmtSig(L.density, 4)} g/cm³` })),
-      h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Element" }), h("th", { class: "n", text: "Amount (wt %)" }), h("th", { class: "n", text: "± σ" }), h("th", { text: "Basis" }))),
-        h("tbody", {}, L.composition.map(c => h("tr", {}, h("td", { text: c.element }), h("td", { class: "n", text: c.wt_pct.toFixed(c.wt_pct < 10 ? 3 : 2) }), h("td", { class: "n", text: c.sigma == null ? "–" : c.sigma.toFixed(3) }),
-          h("td", { text: c.mode === "fixed" ? "given" : c.mode === "unknown" ? "from the fitted lines" : "balance (rest to 100 %)" })))))));
+      h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Element" }), h("th", { class: "n", text: "Amount (wt %)" }), h("th", { class: "n", text: "± σ" }), h("th", { class: "n", text: "Atomic %" }), h("th", { text: "Basis" }))),
+        h("tbody", {}, L.composition.map(c => h("tr", {}, h("td", { text: c.element }), h("td", { class: "n", text: c.wt_pct.toFixed(c.wt_pct < 10 ? 3 : 2) }), h("td", { class: "n", text: c.sigma == null ? "–" : c.sigma.toFixed(3) }), h("td", { class: "n", text: c.at_pct == null ? "–" : c.at_pct.toFixed(c.at_pct < 10 ? 3 : 2) }),
+          h("td", { text: c.mode === "fixed" ? "given" : c.mode === "unknown" ? "from the fitted lines" : "balance (rest to 100 %)" }))))),
+      L.ratios.length ? h("p", { class: "note num", style: "margin:4px 0 0" }, L.ratios.map(q => `${q.element} / ${q.ref}: ${fmtSig(q.mass, 4)}${q.mass_sigma != null ? " ± " + fmtSig(q.mass_sigma, 2) : ""} by mass, ${fmtSig(q.atom, 4)}${q.atom_sigma != null ? " ± " + fmtSig(q.atom_sigma, 2) : ""} by atoms`).join("   ·   ")) : null));
   }
   p.append(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Line group" }), h("th", { class: "n", text: "Measured (cps)" }), h("th", { class: "n", text: "Calculated (cps)" }), h("th", { class: "n", text: "Calculated / measured" }))),
     h("tbody", {}, r.groups.map(g => h("tr", {}, h("td", {}, h("span", { class: "key", style: `background:${colorOf(symOf(g.name))}` }), g.name), h("td", { class: "n", text: fmtSig(g.measured, 4) }), h("td", { class: "n", text: fmtSig(g.predicted, 4) }), h("td", { class: "n", text: g.ratio == null ? "–" : g.ratio.toFixed(3) }))))));
   if (r.notes.length) p.append(h("ul", { class: "note", style: "padding-left:18px" }, r.notes.map(n => h("li", { text: n }))));
   if (S.matrixStale) p.append(h("p", { class: "note", text: "The spectrum was fitted again after this calculation. Press Calculate composition to update." }));
-  p.append(h("p", { class: "note", text: "Primary excitation only: each layer absorbs the beam and the emitted lines as described, but fluorescence excited by other lines of the sample (secondary excitation), scatter and sample roughness are not included. With a balance element, enter K from a standard." }));
+  p.append(h("p", { class: "note", text: "Each layer absorbs the beam and the emitted lines; secondary excitation (lines of the sample exciting other elements) is included unless switched off. Tertiary excitation, scatter and roughness are not included. With a balance element, enter K from a standard (fit a standard with all amounts fixed, then press Use this K from now on)." }));
 }
 
 /* ========================== metadata ========================== */

@@ -18,6 +18,7 @@ import re
 
 import numpy as np
 from scipy.optimize import least_squares
+from scipy.special import expn
 
 from . import attenuation, core, lines, xdata
 
@@ -194,7 +195,7 @@ class Model:
     """Builds the forward calculation for the measured groups."""
 
     def __init__(self, mx, group_names, exc, source):
-        self.mx, self.source = mx, source
+        self.mx, self.source, self.exc = mx, source, exc
         self.layers = _layers(mx)
         try:
             self.a_in, self.a_out = (math.radians(float(mx.get("alpha_in", 45))), math.radians(float(mx.get("alpha_out", 45))))
@@ -223,12 +224,29 @@ class Model:
                     sig = np.array([xdata.xs_line(sym, n, E, source)[0] for E in self.E0])
                 except KeyError as e:
                     raise MatrixError(f"{name}: {core_msg(e)}") from None
-                ls.append((El, sig))
+                ls.append((El, sig, n))
             self.groups[name] = (sym, ls)
+        # lines of every matrix element that can excite other lines (secondary excitation)
+        self.secondary = bool(mx.get("secondary", True))
+        self.src = []
+        if self.secondary:
+            for sym in self.elems:
+                for n in lines._K + lines._L:
+                    El = xdata.line_energy(sym, n)
+                    if El is None:
+                        continue
+                    try:
+                        sig = np.array([xdata.xs_line(sym, n, E, source)[0] for E in self.E0])
+                    except KeyError:
+                        continue
+                    if sig.max() > 0:
+                        self.src.append((sym, n, El, sig))
+        self._xs_cache = {}
         # attenuation of every matrix element at every energy needed
         need = set(self.E0.tolist())
         for _, ls in self.groups.values():
-            need.update(El for El, _ in ls)
+            need.update(El for El, _, _ in ls)
+        need.update(El for _, _, El, _ in self.src)
         self.E_all = np.array(sorted(need))
         self.idx = {round(E, 9): i for i, E in enumerate(self.E_all)}
         self.mu = {s: attenuation.mu(s, self.E_all) for s in self.elems}
@@ -248,12 +266,97 @@ class Model:
         i = [self.idx[round(x, 9)] for x in np.atleast_1d(E)]
         return sum(w * self.mu[s][i] for s, w in frac.items())
 
-    def predict(self, fracs, mass):
+    def _xs_at(self, sym, line, E):
+        k = (sym, line, round(E, 9))
+        if k not in self._xs_cache:
+            try:
+                self._xs_cache[k] = xdata.xs_line(sym, line, E, self.source)[0]
+            except KeyError:
+                self._xs_cache[k] = 0.0
+        return self._xs_cache[k]
+
+    def _cells(self, fracs, mass, targets, sources):
+        """Split the sample into thin cells for the secondary-excitation integrals -> (layer index, mass) arrays."""
+        lay, M = [], []
+        for j, m in enumerate(mass):
+            if math.isinf(m):
+                fr = fracs[j]
+                mus = lambda E: float(self._mu_layer(fr, [E])[0])
+                dt = max((12 * self.s_out / mus(E) for E in targets), default=1.0)
+                db = 14 * self.s_in / min(mus(E) for E in self.E0)
+                reach = max((6.0 / mus(E) for E in sources), default=0.0)
+                top = min(dt, db) + reach
+                n = 36
+                edges = top * (np.arange(n + 1) / n) ** 3
+                lay += [j] * n; M += list(np.diff(edges))
+            elif m > 0:
+                n = 14
+                lay += [j] * n; M += [m / n] * n
+        return np.array(lay), np.array(M)
+
+    def _secondary(self, fracs, mass):
+        """Rates per unit K from lines of the sample that excite other lines of the sample (isotropic emission,
+        exponential-integral kernel, thin-cell discretisation; exact cell-to-cell double integrals)."""
+        out = {n: 0.0 for n in self.groups}
+        pairs = []     # (group, element, line, E_line, source element, source line, E', sig0, xs of target line at E')
+        for name, (sym, ls) in self.groups.items():
+            for El, _, ln in ls:
+                for (ks, kn, Ep, sig0) in self.src:
+                    xs = self._xs_at(sym, ln, Ep)
+                    if xs > 0:
+                        pairs.append((name, sym, ln, El, ks, kn, Ep, sig0, xs))
+        if not pairs:
+            return out
+        lay, M = self._cells(fracs, mass, {p[3] for p in pairs}, {p[6] for p in pairs})
+        N = len(M)
+        if N == 0:
+            return out
+        w_cell = lambda sym: np.array([fracs[j].get(sym, 0.0) for j in lay])
+        def mu_cell(E):
+            per = np.array([float(self._mu_layer(fr, [E])[0]) for fr in fracs])
+            return per[lay]
+        a0 = np.array([mu_cell(E) / self.s_in for E in self.E0])               # (nb, N)
+        Bs = np.cumsum(a0 * M, axis=1) - a0 * M                               # beam attenuation above each cell
+        a0M = a0 * M
+        prim_layer = -np.expm1(-a0M) / (a0 * self.s_in)
+        by_src = {}
+        for pr in pairs:
+            by_src.setdefault((pr[4], pr[5], pr[6]), []).append(pr)
+        for (ks, kn, Ep), grp in by_src.items():
+            sig0 = grp[0][7]
+            Ak = attenuation.atomic_weight(ks)
+            P = np.sum((self.wb * sig0 * N_A * 1e-24 / Ak)[:, None] * w_cell(ks)[None, :] * np.exp(-Bs) * prim_layer, axis=0)   # photons emitted per cell
+            if not np.any(P > 0):
+                continue
+            p = mu_cell(Ep); tau = p * M
+            C = np.cumsum(tau) - tau                                          # optical depth above each cell
+            D = np.zeros((N, N))
+            e3 = lambda x: expn(3, x)
+            top, bot = C[:, None] + tau[:, None], C[None, :]                  # bottom of source s, top of target t
+            cgap = np.maximum(bot - top, 0.0)                                 # valid for t below s
+            num = e3(cgap) - e3(cgap + tau[:, None]) - e3(cgap + tau[None, :]) + e3(cgap + tau[:, None] + tau[None, :])
+            Dt = num / (p[:, None] * p[None, :])
+            iu = np.triu_indices(N, 1)
+            D[iu] = Dt[iu]; D = D + D.T
+            diag = 2 * (M / p + (e3(tau) - 0.5) / p ** 2)
+            D[np.diag_indices(N)] = diag
+            src_w = (P / M)[:, None] * 0.5 * D                                # (s, t)
+            for (name, sym, ln, El, _, _, _, _, xs) in grp:
+                Ai = attenuation.atomic_weight(sym)
+                mo = mu_cell(El) / self.s_out
+                A_t = np.cumsum(mo * M) - mo * M
+                x = mo * M
+                esc = np.exp(-A_t) * np.where(x > 1e-12, -np.expm1(-x) / np.where(x > 1e-12, x, 1), 1.0)
+                St = xs * N_A * 1e-24 / Ai * w_cell(sym) * esc * self.eff[round(El, 9)]
+                out[name] += float(np.sum(src_w.sum(axis=0) * St))
+        return out
+
+    def predict(self, fracs, mass, secondary=False):
         """Rates per unit K for every group. fracs: [{element: mass fraction}] per layer; mass: g/cm^2 (inf last)."""
         out = {}
         for name, (sym, ls) in self.groups.items():
             tot = 0.0
-            for El, sig in ls:
+            for El, sig, _ in ls:
                 eff = self.eff[round(El, 9)]
                 above = np.ones(len(self.E0))
                 for j, fr in enumerate(fracs):
@@ -265,7 +368,21 @@ class Model:
                         tot += float(np.sum(self.wb * sig * (N_A * 1e-24 / attenuation.atomic_weight(sym)) * w * above * layer)) * eff
                     above = above * (np.exp(-chi * M) if not math.isinf(M) else 0.0)
             out[name] = tot
+        if secondary and self.secondary:
+            for n, v in self._secondary(fracs, mass).items():
+                out[n] += v
         return out
+
+
+def _ratio_sets(L):
+    """[(reference element, [other elements])] for a layer: ratios are reported when it has at least two elements,
+    relative to the first element whose amount is unknown (or the first element)."""
+    els = [e["element"] for e in L["entries"]]
+    if len(els) < 2:
+        return []
+    unk = [e["element"] for e in L["entries"] if e["mode"] == "unknown"]
+    ref = unk[0] if unk else els[0]
+    return [(ref, [e for e in els if e != ref])]
 
 
 def _clean(o):
@@ -313,16 +430,20 @@ def solve(mx, result, source=None):
         fixed_sum.append(fx); unknown.append(un); balance.append(bal[0] if bal else None)
         if not un and not bal and abs(fx - 1) > 0.01:
             notes.append(f"{L['name']}: the composition adds up to {fx * 100:.1f} % and was scaled to 100 %")
-    seen = {}
+    where = {}
     for j, un in enumerate(unknown):
         for s in un:
-            if s in seen:
-                raise MatrixError(f"{s} is unknown in {layers[seen[s]]['name']} and {layers[j]['name']}; one set of lines cannot "
-                                  "separate the two layers. Fix its amount in one of them")
-            seen[s] = j
-            if not any(model.groups[g][0] == s for g in used):
-                raise MatrixError(f"{s} is unknown in {layers[j]['name']} but no {s} lines were fitted. Add it under Elements, "
-                                  "or fix its amount, or make it the balance")
+            where.setdefault(s, []).append(j)
+    for s, js in where.items():
+        n_groups = sum(1 for g in used if model.groups[g][0] == s)
+        if n_groups == 0:
+            raise MatrixError(f"{s} is unknown in {layers[js[0]]['name']} but no {s} lines were fitted. Add it under Elements, "
+                              "or fix its amount, or make it the balance")
+        if n_groups < len(js):
+            where_txt = " and ".join(layers[j]["name"] for j in js)
+            raise MatrixError(f"{s} is unknown in {where_txt}, which needs {len(js)} independent {s} measurements but only "
+                              f"{n_groups} line group{' was' if n_groups == 1 else 's were'} fitted. Tick 'Fit α, β and γ lines separately' "
+                              "(Kα and Kβ are absorbed differently, which tells the depths apart), or fix its amount in one layer")
     k_fit = bool(mx.get("fit_k", True))
     try:
         k0 = float(mx.get("k") or 0)
@@ -389,9 +510,11 @@ def solve(mx, result, source=None):
     m = np.array([used[n][0] for n in names]); sg = np.array([used[n][1] for n in names])
     wgt = 1 / np.sqrt(sg ** 2 + (0.01 * m) ** 2 + 1e-12)
 
+    use_sec = [False]
+
     def resid(x):
         fr, mass, K, pen = unpack(x)
-        f = model.predict(fr, mass)
+        f = model.predict(fr, mass, use_sec[0])
         r = np.array([(K * f[n] - used[n][0]) for n in names]) * wgt
         return np.append(r, pen * 1e3) if pen else r
 
@@ -420,35 +543,64 @@ def solve(mx, result, source=None):
             for s in unknown[j]:
                 gs = [n for n in names if model.groups[n][0] == s]
                 pm, pf = sum(used[n][0] for n in gs), sum(K * f[n] for n in gs)
-                new[s] = fr[j].get(s, 1e-6) * (pm / pf if pf > 0 else 1.0)
+                new[(j, s)] = max(fr[j].get(s, 1e-6), 1e-6) * (pm / pf if pf > 0 else 1.0)
         for j in range(len(layers)):
             un = unknown[j]
             if balance[j]:
                 for s in un:
-                    i = idx[("a", j, s)]; x[i] = min(max(new[s], lo[i]), hi[i])
+                    i = idx[("a", j, s)]; x[i] = min(max(new[(j, s)], lo[i]), hi[i])
             elif len(un) >= 2:
                 for s in un[1:]:
-                    x[idx[("q", j, s)]] = min(max(math.log(max(new[s], 1e-12) / max(new[un[0]], 1e-12)), -14), 14)
+                    x[idx[("q", j, s)]] = min(max(math.log(max(new[(j, s)], 1e-12) / max(new[(j, un[0])], 1e-12)), -14), 14)
+    # secondary excitation changes the numbers slowly: solve with the primary model first, then refine with it on
+    n_sec = 0
+    if model.secondary and model.src:
+        try:
+            model.predict(*unpack(x)[:2], True)
+            n_sec = 1
+        except Exception as e:               # keep the primary result rather than fail the whole calculation
+            notes.append(f"secondary excitation was skipped ({e})")
     if len(P):
         sol = least_squares(resid, x, bounds=(lo, hi), x_scale="jac")
-        x, J = sol.x, sol.jac
+        x = sol.x
+        if n_sec:
+            use_sec[0] = True
+            sol = least_squares(resid, x, bounds=(lo, hi), x_scale="jac")
+            x = sol.x
+        J = sol.jac
     else:
+        use_sec[0] = bool(n_sec)
         J = np.zeros((len(names), 0))
     r = resid(x)[:len(names)]
     dof = len(names) - len(P)
     chi2red = float(r @ r / dof) if dof > 0 else None
+    if n_sec:
+        base = model.predict(*unpack(x)[:2], False); full = model.predict(*unpack(x)[:2], True)
+        worst = max(full, key=lambda g: full[g] / base[g] - 1 if base[g] > 0 else 0)
+        if base[worst] > 0 and full[worst] / base[worst] - 1 > 0.005:
+            notes.append(f"secondary excitation raises {worst} by {100 * (full[worst] / base[worst] - 1):.1f} %")
 
     # ---- uncertainties: parameter covariance mapped to the reported quantities
     def outputs(xx):
         fr, mass, K, _ = unpack(xx)
         o = [fr[j].get(e["element"], 0.0) * 100 for j, L in enumerate(layers) for e in L["entries"]]
         o += [(mass[j] / L["rho"] * 1e4) for j, L in enumerate(layers) if L["t_um"] is not None]
+        for j, L in enumerate(layers):
+            for ref, others in _ratio_sets(L):
+                for e in others:
+                    a, b = fr[j].get(e, 0.0), fr[j].get(ref, 0.0)
+                    o.append(a / b if b > 0 else float("nan"))
+                    o.append((a / attenuation.atomic_weight(e)) / (b / attenuation.atomic_weight(ref)) if b > 0 else float("nan"))
         o.append(K)
         return np.array(o)
     sig_out = None
-    if len(P) and dof > 0:
+    if len(P):
         try:
-            cov = np.linalg.pinv(J.T @ J) * max(chi2red, 1.0)
+            cov = np.linalg.pinv(J.T @ J) * (max(chi2red, 1.0) if dof > 0 else 1.0)
+            sv = np.linalg.svd(J, compute_uv=False)
+            if sv.min() < 1e-6 * sv.max():
+                notes.append("some of the quantities cannot be told apart by the fitted lines (they are almost fully correlated), "
+                             "so their uncertainties are very large. Fit α, β and γ lines separately, add lines, or fix some amounts")
             Jo = np.zeros((len(outputs(x)), len(P)))
             for i in range(len(P)):
                 d = np.zeros(len(P)); h = 1e-6 * max(1.0, abs(x[i])); d[i] = h
@@ -457,7 +609,7 @@ def solve(mx, result, source=None):
         except np.linalg.LinAlgError:
             sig_out = None
     fr, mass, K, _ = unpack(x)
-    pred = model.predict(fr, mass)
+    pred = model.predict(fr, mass, use_sec[0])
     o, k = outputs(x), 0
     out_layers = []
     for j, L in enumerate(layers):
@@ -466,13 +618,24 @@ def solve(mx, result, source=None):
             comp.append({"element": e["element"], "mode": e["mode"], "wt_pct": float(o[k]),
                          "sigma": float(sig_out[k]) if sig_out is not None and e["mode"] != "fixed" else None})
             k += 1
+        at = {c["element"]: c["wt_pct"] / attenuation.atomic_weight(c["element"]) for c in comp}
+        tot = sum(at.values())
+        for c in comp:
+            c["at_pct"] = float(100 * at[c["element"]] / tot) if tot > 0 else None
         out_layers.append({"name": L["name"], "density": L["rho"], "composition": comp, "infinite": L["t_um"] is None,
-                           "fit_thickness": L["fit_t"]})
+                           "fit_thickness": L["fit_t"], "ratios": []})
     for j, L in enumerate(layers):
         if L["t_um"] is not None:
             out_layers[j]["thickness_um"] = float(o[k])
             out_layers[j]["thickness_sigma"] = float(sig_out[k]) if sig_out is not None and L["fit_t"] else None
             k += 1
+    # ratios of the elements in a layer to its first element that has an unknown amount (or its first element)
+    for j, L in enumerate(layers):
+        for ref, others in _ratio_sets(L):
+            for e in others:
+                out_layers[j]["ratios"].append({"element": e, "ref": ref, "mass": float(o[k]), "mass_sigma": float(sig_out[k]) if sig_out is not None else None,
+                                                "atom": float(o[k + 1]), "atom_sigma": float(sig_out[k + 1]) if sig_out is not None else None})
+                k += 2
     for i, p in enumerate(P):
         if p[0] == "a" and (x[i] <= lo[i] + 1e-9 or x[i] >= hi[i] - 1e-9):
             notes.append(f"{p[2]} in {layers[p[1]]['name']} reached its limit (0 or the whole remainder)")
