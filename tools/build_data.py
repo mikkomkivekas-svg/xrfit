@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Build xrfit/data/*.json from the two source PDFs.
 
     python tools/build_data.py Table_1-2.pdf xraylib_tables_v2.3.pdf

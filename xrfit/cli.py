@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """JaBS-style command interpreter for xrfit.
 
     xrfit                 interactive prompt

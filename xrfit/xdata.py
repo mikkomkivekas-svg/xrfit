@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Line energies and production cross sections from the two bundled source tables.
 
   * X-Ray Data Booklet Table 1-2 (eV): Ka1 Ka2 Kb1 La1 La2 Lb1 Lb2 Lg1 Ma1, Z=3-95

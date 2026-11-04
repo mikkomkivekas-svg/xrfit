@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """KETEK .vspc reader.
 
 Verified against a real VICO-Scope JSON export (Version 1) with the sections

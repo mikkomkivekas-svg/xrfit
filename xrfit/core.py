@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """xrfit core: spectrum I/O, SNIP background, peak model, fitting, quantification.
 
 Fit strategy (as in PyMca): nonlinear parameters (energy calibration, resolution,

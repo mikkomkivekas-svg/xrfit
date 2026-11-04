@@ -60,3 +60,13 @@ HDF5/EDF/SPEC I/O, GUI, XRF mapping, photoabsorption/scattering cross-section ta
 Same working style as JaBS (command interpreter, `.xrf` scripts like `.jabs` scripts, batch runs).
 It is *not* linked to JaBS/jibal: JaBS is a C code for RBS/ERD/NRA and has no XRF model.
 For true integration, expose jibal element/mass data via ctypes in `lines.py`.
+
+## License
+Copyright (C) 2026 the xrfit authors. xrfit is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version. It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; see the [LICENSE](LICENSE) file for details.
+
+The bundled data in `xrfit/data/` is extracted from third-party publications (X-Ray Data Booklet Table 1-2,
+LBNL; XRAYLIB tables v2.3, ESRF/Univ. of Sassari, 2003). The GPL applies to the xrfit code; the data remain
+subject to their original sources' terms and should be cited accordingly.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Fit line groups built from the bundled Table 1-2 energies and xraylib rates/cross sections.
 
 Tokens understood by build_groups():

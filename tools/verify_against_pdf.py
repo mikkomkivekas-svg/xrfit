@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Independent check of xrfit/data/*.json against the PDFs using a different text extractor
 (pdftotext). Compares, page by page, the multiset of numbers in the PDF with the numbers stored.
 
