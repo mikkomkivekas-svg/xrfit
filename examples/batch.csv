@@ -1,0 +1,2 @@
+file,Cu-K,Cu-K_err,Fe-K,Fe-K_err,Pb-L,Pb-L_err,Zn-K,Zn-K_err,sum:Cu-K+Cu-K,sum:Cu-K+Cu-K_err,sum:Cu-K+Zn-K,sum:Cu-K+Zn-K_err,sum:Fe-K+Cu-K,sum:Fe-K+Cu-K_err,sum:Fe-K+Fe-K,sum:Fe-K+Fe-K_err,sum:Fe-K+Pb-L,sum:Fe-K+Pb-L_err,sum:Fe-K+Zn-K,sum:Fe-K+Zn-K_err,sum:Zn-K+Zn-K,sum:Zn-K+Zn-K_err
+examples/synthetic.txt,14408.63,124.01,38940.70,192.99,4655.05,77.78,7622.45,95.75,14.26,22.60,0.00,0.00,0.00,0.00,0.00,0.00,34.08,22.34,0.00,0.00,42.05,21.96

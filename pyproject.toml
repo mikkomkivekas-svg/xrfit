@@ -1,0 +1,18 @@
+[project]
+name = "xrfit"
+version = "0.1.0"
+description = "PyMca-style XRF spectrum fitting with a JaBS-style scriptable command interpreter"
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy"]
+[project.optional-dependencies]
+plot = ["matplotlib"]
+[project.scripts]
+xrfit = "xrfit.cli:main"
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+[tool.setuptools]
+packages = ["xrfit"]
+
+[tool.setuptools.package-data]
+xrfit = ["data/*.json"]

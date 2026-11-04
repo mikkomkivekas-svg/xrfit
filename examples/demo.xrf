@@ -1,0 +1,15 @@
+# JaBS-style script
+load examples/synthetic.txt
+set zero 0.0
+set gain 0.0098
+set emin 1.5
+set emax 18
+set e0 20
+add Fe Cu Zn Pb-L
+free zero gain noise tail_frac esc_frac
+set tail_frac 0.03
+set esc_frac 0.005
+fit
+plot examples/demo.png
+save examples/demo_fit.csv
+quantify theory
