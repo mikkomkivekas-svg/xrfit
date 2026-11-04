@@ -18,4 +18,4 @@ build-backend = "setuptools.build_meta"
 packages = ["xrfit"]
 
 [tool.setuptools.package-data]
-xrfit = ["data/*.json", "data/*.vspc", "web/*"]
+xrfit = ["data/*.json", "data/*.vspc", "web/*", "web/static/*"]

@@ -20,6 +20,12 @@ Options: `--port N`, `--no-browser`, `--host`. Open or drop a spectrum (KETEK `.
 
 The server is single-user and has no login. It only accepts requests addressed to localhost and requires a custom header on writes, so keep it bound to `127.0.0.1` unless you add your own protection.
 
+### Hosted version (GitHub Pages)
+
+The same interface also runs with no server: `docs/` holds a static build in which the Python backend runs in the browser through [Pyodide](https://pyodide.org) (numpy and scipy compiled to WebAssembly). Spectra stay on your computer. The first visit downloads about 30 MB from the jsDelivr CDN and takes several seconds to start.
+
+Enable it once under **Settings → Pages → Deploy from a branch → `main` / `/docs`**. The site is then at `https://<user>.github.io/xrfit/`. After changing anything in `xrfit/`, rebuild with `python tools/build_pages.py` and commit `docs/`.
+
 ## Implemented
 - Gaussian peaks with energy-dependent width: FWHM^2 = noise^2 + 2.3548^2 * eps * Fano * E
 - Hypermet low-energy tail, step function, Si-escape peaks, optional sum (pile-up) peaks

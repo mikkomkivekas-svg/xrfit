@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xrfit</title>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<style>
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;   /* plot + results */
+  --surface-2: #f3f3f0;   /* setup rail */
+  --surface-3: #e9e8e3;   /* hover wash */
+  --line: #dddcd6;        /* hairlines */
+  --grid: #ebeae6;
+  --text-1: #161614;
+  --text-2: #52514e;
+  --text-3: #7d7c75;
+  --focus: #2a78d6;
+  --danger: #d03b3b;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --s-other: #8a8982;
+  --shadow: 0 6px 24px rgba(20, 20, 18, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2: #222221; --surface-3: #2e2e2c;
+    --line: #363634; --grid: #282826;
+    --text-1: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c84;
+    --focus: #5aa0f2; --danger: #ef6a6a;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --shadow: 0 6px 24px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-1: #1a1a19; --surface-2: #222221; --surface-3: #2e2e2c;
+  --line: #363634; --grid: #282826;
+  --text-1: #f0efec; --text-2: #c3c2b7; --text-3: #8d8c84;
+  --focus: #5aa0f2; --danger: #ef6a6a;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --shadow: 0 6px 24px rgba(0, 0, 0, .5);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--surface-1); color: var(--text-1);
+  font: 13px/1.45 "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, select { font: inherit; color: inherit; }
+h2 { margin: 0 0 8px; font-size: 12px; font-weight: 650; letter-spacing: .01em; color: var(--text-1); }
+.num, td.n, th.n, input[type=number] { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 3px; }
+[hidden] { display: none !important; }
+
+/* ---------- layout ---------- */
+.app { display: grid; grid-template-columns: 372px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 100vh; }
+.top { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 8px 14px; border-bottom: 1px solid var(--line); min-height: 46px; }
+.brand { font-weight: 700; font-size: 15px; letter-spacing: -.01em; margin-right: 4px; }
+.brand span { color: var(--text-3); font-weight: 500; }
+.filemeta { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+.filemeta b { color: var(--text-1); font-weight: 600; }
+.rail { background: var(--surface-2); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.rail-scroll { overflow: auto; flex: 1; min-height: 0; }
+.blk { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.blk:last-child { border-bottom: 0; }
+.fitbar { padding: 10px 14px 12px; border-top: 1px solid var(--line); background: var(--surface-2); }
+.main { display: grid; grid-template-rows: minmax(300px, 1fr) auto; min-width: 0; min-height: 0; }
+.plotwrap { position: relative; min-height: 0; display: flex; flex-direction: column; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 14px 4px; }
+.legend { display: flex; flex-wrap: wrap; gap: 2px 4px; flex: 1; min-width: 0; }
+.stage { position: relative; flex: 1; min-height: 240px; padding: 0 0 0 4px; }
+.stage canvas { width: 100%; height: 100%; display: block; cursor: crosshair; touch-action: none; }
+.stage.busy canvas { opacity: .55; transition: opacity .15s; }
+.results { border-top: 1px solid var(--line); max-height: 44vh; display: flex; flex-direction: column; min-height: 150px; }
+.tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; background: none; padding: 9px 10px 8px; cursor: pointer; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab[aria-selected=true] { color: var(--text-1); border-bottom-color: var(--text-1); font-weight: 600; }
+.tab:hover { color: var(--text-1); }
+.pane { overflow: auto; padding: 12px 14px 16px; }
+
+/* ---------- controls ---------- */
+.btn { border: 1px solid var(--line); background: var(--surface-1); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+.btn:hover { background: var(--surface-3); }
+.btn.primary { background: var(--text-1); color: var(--surface-1); border-color: var(--text-1); font-weight: 600; padding: 8px 12px; width: 100%; }
+.btn.primary:hover { opacity: .88; background: var(--text-1); }
+.btn[disabled] { opacity: .5; cursor: default; }
+.btn.quiet { border-color: transparent; background: none; color: var(--text-2); padding: 4px 8px; }
+.btn.quiet:hover { background: var(--surface-3); color: var(--text-1); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface-1); padding: 4px 10px; cursor: pointer; color: var(--text-2); }
+.seg button[aria-pressed=true] { background: var(--text-1); color: var(--surface-1); }
+input[type=number], input[type=text], select {
+  background: var(--surface-1); border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; width: 100%; min-width: 0;
+}
+input[type=number]:hover, input[type=text]:hover, select:hover { border-color: var(--text-3); }
+input[type=checkbox] { accent-color: var(--text-1); margin: 0; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row + .row { margin-top: 6px; }
+.field { display: grid; gap: 3px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label.chk { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.hint { color: var(--text-3); font-size: 12px; margin-top: 6px; }
+.err { color: var(--danger); font-size: 12px; margin-top: 6px; }
+.err::before { content: "\26A0\FE0E  "; }
+
+/* metadata */
+details.meta { border-top: 1px solid var(--line); padding: 5px 0; }
+details.meta:first-of-type { border-top: 0; }
+details.meta summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: baseline; padding: 2px 0; }
+details.meta summary > span:first-of-type { flex: 1; text-align: left; }
+details.meta summary::-webkit-details-marker { display: none; }
+details.meta summary::before { content: "\25B8"; color: var(--text-3); margin-right: 6px; transition: transform .12s; display: inline-block; }
+details.meta[open] summary::before { transform: rotate(90deg); }
+details.meta summary .cnt { color: var(--text-3); font-weight: 400; }
+dl.kv { display: grid; grid-template-columns: minmax(90px, 42%) minmax(0, 1fr); gap: 1px 10px; margin: 4px 0 4px 14px; }
+dl.kv dt { color: var(--text-2); overflow-wrap: anywhere; text-align: left; }
+dl.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* element chips */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-1); border: 1px solid var(--line); border-radius: 999px; padding: 2px 4px 2px 8px; }
+.chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.chip small { color: var(--text-3); }
+.chip button { border: 0; background: none; cursor: pointer; color: var(--text-3); padding: 0 5px; border-radius: 50%; line-height: 1.4; }
+.chip button:hover { color: var(--text-1); background: var(--surface-3); }
+.chip.bad { border-color: var(--danger); }
+
+/* parameter table */
+table.params { width: 100%; border-collapse: collapse; }
+table.params th { text-align: left; font-weight: 500; color: var(--text-3); font-size: 12px; padding: 0 4px 4px 0; }
+table.params td { padding: 2px 4px 2px 0; vertical-align: middle; }
+table.params td:first-child { color: var(--text-2); padding-right: 6px; }
+table.params input[type=number] { width: 72px; }
+table.params td.res { font-size: 12px; }
+table.params td.res { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+table.params td.res span { color: var(--text-3); }
+table.params td.fitcol { text-align: center; width: 34px; }
+
+/* result tables */
+table.data { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+table.data th { text-align: left; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--line); padding: 4px 12px 6px 0; white-space: nowrap; position: sticky; top: -12px; background: var(--surface-1); }
+table.data td { padding: 5px 12px 5px 0; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+table.data th.n, table.data td.n { text-align: right; }
+table.data tr:hover td { background: var(--surface-2); }
+.key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
+.summary { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-bottom: 10px; align-items: baseline; }
+.summary .big { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.summary span.lbl { color: var(--text-3); margin-right: 5px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.note { color: var(--text-3); font-size: 12px; max-width: 78ch; margin-top: 8px; }
+
+/* legend + tooltip */
+.lg { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 3px 7px; border-radius: 5px; cursor: pointer; color: var(--text-2); }
+.lg:hover { background: var(--surface-3); }
+.lg[aria-pressed=false] { opacity: .45; text-decoration: line-through; }
+.lg i { display: inline-block; width: 16px; height: 0; border-top: 2px solid; }
+.lg i.sq { width: 10px; height: 10px; border: 0; border-radius: 2px; }
+.tip { position: absolute; pointer-events: none; background: var(--surface-1); border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow); padding: 7px 9px; min-width: 150px; z-index: 5; font-size: 12px; }
+.tip .hd { color: var(--text-2); margin-bottom: 4px; }
+.tip .hd b { color: var(--text-1); font-weight: 650; }
+.tip .tr { display: flex; align-items: center; gap: 7px; padding: 1px 0; }
+.tip .tr i { width: 12px; border-top: 2px solid; display: inline-block; }
+.tip .tr b { margin-left: auto; padding-left: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.tip .tr span { color: var(--text-2); }
+
+.empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; }
+.empty > div { max-width: 420px; }
+.empty h1 { font-size: 20px; margin: 0 0 6px; letter-spacing: -.01em; }
+.empty p { color: var(--text-2); margin: 0 0 14px; }
+.empty .btn { margin: 0 4px 6px; }
+.drop { position: fixed; inset: 0; background: color-mix(in srgb, var(--surface-1) 86%, transparent); display: grid; place-items: center; font-size: 18px; font-weight: 600; z-index: 20; border: 3px dashed var(--text-3); margin: 8px; border-radius: 12px; pointer-events: none; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto auto auto; height: auto; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--line); display: block; }
+  .rail-scroll { overflow: visible; }
+  .top { flex-wrap: wrap; }
+  .filemeta { flex-basis: 100%; order: 9; white-space: normal; }
+  .main { grid-template-rows: 60vh auto; }
+  .plotwrap, .toolbar, .main, .results { min-width: 0; max-width: 100vw; }
+  .toolbar { flex-wrap: wrap; }
+  .toolbar > .row { flex-wrap: wrap; }
+  .results { max-height: none; }
+  .fitbar { position: sticky; bottom: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">xrfit <span>XRF spectrum fitting</span></div>
+    <button class="btn" id="open">Open spectrum</button>
+    <input type="file" id="file" accept=".vspc,.csv,.mca,.txt,.dat,.json" hidden>
+    <button class="btn quiet" id="ex-syn" title="A generated Fe, Cu, Zn and Pb spectrum with known amounts">Synthetic example</button>
+    <button class="btn quiet" id="ex-ket" title="A real KETEK VICO export (heavily pile-up distorted)">KETEK example</button>
+    <div class="filemeta" id="filemeta">No spectrum loaded</div>
+    <button class="btn quiet" id="theme" title="Switch between automatic, light and dark">Theme: auto</button>
+  </header>
+
+  <aside class="rail" aria-label="Setup">
+    <div class="rail-scroll">
+      <section class="blk" id="blk-spectrum">
+        <h2>Spectrum</h2>
+        <div id="meta"><p class="hint" style="margin:0">Open a spectrum to see its measurement time, slow filter settings and detector details here.</p></div>
+      </section>
+
+      <section class="blk">
+        <h2>Elements</h2>
+        <div class="row">
+          <input type="text" id="el-input" list="el-list" placeholder="Fe, Pb-L, Cu-Ka1" autocomplete="off" spellcheck="false" aria-label="Element, shell or line to add">
+          <button class="btn" id="el-add">Add</button>
+        </div>
+        <datalist id="el-list"></datalist>
+        <div class="err" id="el-err" role="alert" hidden></div>
+        <div class="chips" id="chips"></div>
+        <p class="hint" id="el-hint">An element picks K or L lines from what the excitation energy reaches. Write <b>Pb-L</b> for a shell or <b>Pb-La2</b> for one line.</p>
+        <div class="grid2" style="margin-top:10px">
+          <div class="field"><label for="e0">Excitation energy e0 (keV)</label><input type="number" id="e0" step="any" min="0.1"></div>
+          <div class="field"><label for="xs">Cross sections</label>
+            <select id="xs"><option value="xraylib">xraylib</option><option value="krause">Krause</option></select></div>
+        </div>
+        <div class="row" style="margin-top:10px"><label class="chk"><input type="checkbox" id="free-ratios"> Fit α, β and γ lines separately</label></div>
+        <div class="row"><label class="chk"><input type="checkbox" id="sum-peaks"> Add sum (pile-up) peaks</label></div>
+      </section>
+
+      <section class="blk">
+        <div class="row" style="justify-content:space-between;margin-bottom:6px">
+          <h2 style="margin:0">Calibration and peak shape</h2>
+          <button class="btn quiet" id="use-fitted" disabled title="Copy the fitted values into the start column">Use fitted</button>
+        </div>
+        <table class="params" id="params"></table>
+        <p class="hint">Tick <b>Fit</b> to let the fit refine a value from its start value.</p>
+      </section>
+
+      <section class="blk">
+        <h2>Background and fit region</h2>
+        <div class="field"><label for="bg">Background</label>
+          <select id="bg"><option value="snip">SNIP</option><option value="poly">Polynomial</option><option value="snip+poly">SNIP and polynomial</option><option value="none">None</option></select></div>
+        <div class="grid2" style="margin-top:8px">
+          <div class="field" id="f-snipw"><label for="snipw">SNIP width (channels)</label><input type="number" id="snipw" min="1" step="1"></div>
+          <div class="field" id="f-snips"><label for="snips">SNIP smoothing</label><input type="number" id="snips" min="1" step="1"></div>
+          <div class="field" id="f-poly"><label for="poly">Polynomial order</label><input type="number" id="poly" min="0" max="6" step="1"></div>
+        </div>
+        <div class="grid2" style="margin-top:8px">
+          <div class="field"><label for="emin">Region from (keV)</label><input type="number" id="emin" step="any" min="0"></div>
+          <div class="field"><label for="emax">Region to (keV)</label><input type="number" id="emax" step="any" placeholder="end of spectrum"></div>
+        </div>
+        <div class="row" style="margin-top:8px"><button class="btn" id="view-region">Use plot view as region</button><button class="btn quiet" id="full-region">Whole spectrum</button></div>
+      </section>
+    </div>
+    <div class="fitbar">
+      <button class="btn primary" id="fit" disabled>Fit spectrum</button>
+      <div class="hint" id="fit-status" style="min-height:18px" aria-live="polite">Open a spectrum and add elements to fit.</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="plotwrap" aria-label="Spectrum plot">
+      <div class="toolbar">
+        <div class="legend" id="legend"></div>
+        <div class="row" style="margin:0">
+          <div class="seg" role="group" aria-label="Counts axis"><button id="y-log" aria-pressed="true">Log</button><button id="y-lin" aria-pressed="false">Linear</button></div>
+          <button class="btn quiet" id="reset-view" title="Double-click the plot also resets">Reset view</button>
+        </div>
+      </div>
+      <div class="stage" id="stage">
+        <canvas id="cv" tabindex="0" role="img" aria-label="Spectrum plot. Use the left and right arrow keys to move the cursor, plus and minus to zoom, 0 to reset."></canvas>
+        <div class="tip" id="tip" hidden></div>
+        <div class="empty" id="empty"><div>
+          <h1>Open a spectrum to start</h1>
+          <p>Drop a file anywhere on this page, or choose one. KETEK .vspc and .csv, Amptek .mca and plain text columns are supported.</p>
+          <button class="btn primary" id="empty-open" style="width:auto">Open spectrum</button><br>
+          <button class="btn quiet" id="empty-syn">Try the synthetic example</button>
+        </div></div>
+      </div>
+    </section>
+
+    <section class="results" aria-label="Results">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true" data-pane="areas" id="t-areas">Net areas</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="lines" id="t-lines">Line data</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="batch" id="t-batch">Batch</button>
+      </div>
+      <div class="pane" id="pane-areas" role="tabpanel" aria-labelledby="t-areas"></div>
+      <div class="pane" id="pane-lines" role="tabpanel" aria-labelledby="t-lines" hidden></div>
+      <div class="pane" id="pane-batch" role="tabpanel" aria-labelledby="t-batch" hidden></div>
+    </section>
+  </main>
+</div>
+<div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
+
+<script src="shim.js"></script>
+<script>
+"use strict";
+/* ============================ helpers ============================ */
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, props = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) { if (kid == null || kid === false) continue; el.append(kid.nodeType ? kid : document.createTextNode(kid)); }
+  return el;
+}
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: "POST", headers: { "X-Requested-With": "xrfit", "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  const r = await fetch(path, opt);
+  let d; try { d = await r.json(); } catch { d = { error: "The server sent an unexpected response." }; }
+  if (!r.ok) throw new Error(d.error || r.statusText);
+  return d;
+}
+const fmtInt = n => Math.round(n).toLocaleString("en-US");
+const fmtSig = (v, d = 4) => (v == null || !isFinite(v)) ? "–" : (Math.abs(v) >= 1e5 || (v !== 0 && Math.abs(v) < 1e-3) ? v.toExponential(d - 1) : String(Number(v.toPrecision(d))));
+const fmtK = n => n >= 1e4 ? (n / 1e3).toLocaleString("en-US", { maximumFractionDigits: 1 }) + "K" : n.toLocaleString("en-US");
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
+
+/* ============================== state ============================== */
+const DEFAULT_CFG = () => ({
+  elements: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
+  free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
+  sum_peaks: false, free_ratios: false, e0: 20, xs_source: "xraylib",
+});
+const S = {
+  spec: null,            // {name, counts, calib, live_time, meta}
+  cfg: DEFAULT_CFG(),
+  groupInfo: [],         // /api/groups entries for cfg.elements
+  preview: null,         // lines-tab element preview {symbol, lines:[{E,w}]}
+  result: null,
+  slot: {},              // element symbol -> categorical slot (fixed once assigned)
+  hidden: new Set(),     // legend toggles
+  logY: true,
+  view: null,            // {x0, x1} keV
+  cursor: null,          // channel index
+  showAllMeta: false,
+};
+const PARAMS = [
+  ["zero", "Zero offset (keV)"], ["gain", "Gain (keV/channel)"], ["noise", "Electronic noise FWHM (keV)"],
+  ["fano", "Fano factor"], ["tail_frac", "Tail fraction"], ["beta", "Tail slope β (keV)"],
+  ["step_frac", "Step fraction"], ["esc_frac", "Si escape fraction"],
+];
+const SLOTS = 8;
+
+/* ============================== theme ============================== */
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+  $("#theme").textContent = "Theme: " + t; store.set("xrfit-theme", t); plot.refreshColors(); plot.draw(); renderLegend(); renderAreas(); renderChips();
+}
+$("#theme").onclick = () => applyTheme(THEMES[(THEMES.indexOf(store.get("xrfit-theme") || "auto") + 1) % 3]);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { plot.refreshColors(); plot.draw(); });
+
+/* ============================ colors ============================ */
+const slotVar = i => i >= 0 && i < SLOTS ? `var(--s${i + 1})` : "var(--s-other)";
+function symOf(token) { return token.split("-")[0]; }
+function assignSlots() {
+  const used = new Set(); const live = new Set(S.cfg.elements.map(symOf));
+  for (const k of Object.keys(S.slot)) if (!live.has(k)) delete S.slot[k];   // free slots of removed elements
+  for (const v of Object.values(S.slot)) used.add(v);
+  for (const sym of live) if (!(sym in S.slot)) { let i = 0; while (used.has(i)) i++; S.slot[sym] = i; used.add(i); }
+}
+const colorOf = sym => slotVar(S.slot[sym] ?? 99);
+
+/* ============================= plot ============================= */
+const plot = {
+  cv: $("#cv"), ctx: null, W: 0, H: 0, dpr: 1, C: {}, geo: null,
+  init() {
+    this.ctx = this.cv.getContext("2d");
+    new ResizeObserver(() => this.resize()).observe($("#stage"));
+    this.refreshColors(); this.resize();
+    const cv = this.cv;
+    let drag = null;
+    cv.addEventListener("pointerdown", e => { if (!S.spec) return; cv.setPointerCapture(e.pointerId); drag = { x: e.clientX, v: { ...S.view }, moved: false }; cv.style.cursor = "grabbing"; });
+    cv.addEventListener("pointermove", e => {
+      if (!S.spec || !this.geo) return;
+      const r = cv.getBoundingClientRect(), px = e.clientX - r.left;
+      if (drag) {
+        const dx = e.clientX - drag.x; if (Math.abs(dx) > 2) drag.moved = true;
+        const span = drag.v.x1 - drag.v.x0, dE = -dx / this.geo.pw * span;
+        this.setView(drag.v.x0 + dE, drag.v.x1 + dE, true);
+      }
+      this.hover(px, e.clientY - r.top);
+    });
+    const end = () => { drag = null; cv.style.cursor = "crosshair"; };
+    cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+    cv.addEventListener("pointerleave", () => { if (!drag) { S.cursor = null; $("#tip").hidden = true; this.draw(); } });
+    cv.addEventListener("wheel", e => {
+      if (!S.spec || !this.geo) return; e.preventDefault();
+      const r = cv.getBoundingClientRect(), E = this.xInv(e.clientX - r.left), f = Math.exp(e.deltaY * 0.0015);
+      this.setView(E - (E - S.view.x0) * f, E + (S.view.x1 - E) * f);
+    }, { passive: false });
+    cv.addEventListener("dblclick", () => this.resetView());
+    cv.addEventListener("keydown", e => {
+      if (!S.spec) return;
+      const n = S.spec.counts.length, step = e.shiftKey ? 10 : 1;
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault(); const cur = S.cursor ?? this.idxOf((S.view.x0 + S.view.x1) / 2);
+        S.cursor = Math.max(0, Math.min(n - 1, cur + (e.key === "ArrowRight" ? step : -step)));
+        const E = this.eOf(S.cursor); if (E < S.view.x0 || E > S.view.x1) { const s = S.view.x1 - S.view.x0; this.setView(E - s / 2, E + s / 2, true); }
+        this.showTip(); this.draw();
+      } else if (e.key === "+" || e.key === "=") { const c = (S.view.x0 + S.view.x1) / 2, s = (S.view.x1 - S.view.x0) / 4; this.setView(c - s, c + s); }
+      else if (e.key === "-") { const c = (S.view.x0 + S.view.x1) / 2, s = (S.view.x1 - S.view.x0); this.setView(c - s, c + s); }
+      else if (e.key === "0") this.resetView();
+    });
+  },
+  refreshColors() {
+    const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
+    this.C = { surface: g("--surface-1"), line: g("--line"), grid: g("--grid"), t1: g("--text-1"), t2: g("--text-2"), t3: g("--text-3"), other: g("--s-other"),
+      slots: Array.from({ length: SLOTS }, (_, i) => g(`--s${i + 1}`)) };
+  },
+  col(sym) { const i = S.slot[sym]; return i != null && i < SLOTS ? this.C.slots[i] : this.C.other; },
+  resize() {
+    const st = $("#stage"), r = st.getBoundingClientRect();
+    this.dpr = window.devicePixelRatio || 1; this.W = Math.max(200, r.width - 4); this.H = Math.max(160, r.height);
+    this.cv.width = Math.round(this.W * this.dpr); this.cv.height = Math.round(this.H * this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); this.draw();
+  },
+  /* energy axis of the data: fitted calibration once a fit exists, otherwise the start values */
+  calib() { return S.result ? S.result.calib : { zero: S.cfg.zero, gain: S.cfg.gain }; },
+  eOf(i) { const c = this.calib(); return c.zero + c.gain * i; },
+  idxOf(E) { const c = this.calib(); return Math.round((E - c.zero) / c.gain); },
+  range() { if (!S.spec) return [0, 1]; const n = S.spec.counts.length; return [this.eOf(-0.5), this.eOf(n - 0.5)]; },
+  resetView() { const [a, b] = this.range(); S.view = { x0: a, x1: b }; this.draw(); },
+  setView(x0, x1, keepSpan) {
+    const [a, b] = this.range(), min = this.calib().gain * 12;
+    let span = Math.max(min, Math.min(b - a, x1 - x0));
+    if (keepSpan) span = x1 - x0;
+    if (x0 < a) { x0 = a; x1 = a + span; }
+    if (x1 > b) { x1 = b; x0 = b - span; }
+    S.view = { x0: Math.max(a, x0), x1: Math.min(b, x1) }; this.draw();
+  },
+  xInv(px) { const g = this.geo; return S.view.x0 + (px - g.L) / g.pw * (S.view.x1 - S.view.x0); },
+  hover(px, py) {
+    if (!S.spec || !this.geo) return;
+    const E = this.xInv(px), n = S.spec.counts.length, i = this.idxOf(E);
+    if (px < this.geo.L || px > this.geo.L + this.geo.pw || i < 0 || i >= n) { S.cursor = null; $("#tip").hidden = true; this.draw(); return; }
+    S.cursor = i; this.showTip(px, py); this.draw();
+  },
+  showTip(px, py) {
+    const tip = $("#tip"), g = this.geo, i = S.cursor; if (i == null || !g) { tip.hidden = true; return; }
+    const E = this.eOf(i), counts = S.spec.counts[i];
+    tip.replaceChildren(h("div", { class: "hd" }, h("b", { text: E.toFixed(3) + " keV" }), "  channel " + i));
+    const row = (color, name, val, dash) => tip.append(h("div", { class: "tr" }, h("i", { style: `border-top-color:${color};${dash ? "border-top-style:dotted" : ""}` }), h("span", { text: name }), h("b", { text: val })));
+    row(this.C.t3, "Data", fmtInt(counts));
+    const r = S.result;
+    if (r) {
+      const j = Math.round((E - r.energy[0]) / r.calib.gain);
+      if (j >= 0 && j < r.energy.length && Math.abs(r.energy[j] - E) < r.calib.gain) {
+        row(this.C.t1, "Fit", fmtSig(r.fit[j], 5)); row(this.C.t2, "Background", fmtSig(r.background[j], 5));
+        const comps = Object.entries(r.components).map(([k, v]) => [k, v[j]]).filter(([, v]) => v > 0.5).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        for (const [k, v] of comps) row(k.startsWith("sum:") ? this.C.t3 : this.col(symOf(k)), k, fmtSig(v, 4));
+        const res = (r.data[j] - r.fit[j]) / Math.sqrt(Math.max(r.fit[j], 1));
+        row(this.C.t3, "Residual (σ)", (res >= 0 ? "+" : "") + res.toFixed(1), true);
+      }
+    }
+    tip.hidden = false;
+    const st = $("#stage").getBoundingClientRect(); const x = px ?? this.xPx(E), y = py ?? 40;
+    let left = x + 14, top = y + 10; const tw = tip.offsetWidth, th = tip.offsetHeight;
+    if (left + tw > st.width - 4) left = x - tw - 14; if (top + th > st.height - 4) top = st.height - th - 4;
+    tip.style.left = Math.max(4, left) + "px"; tip.style.top = Math.max(4, top) + "px";
+  },
+  xPx(E) { const g = this.geo; return g.L + (E - S.view.x0) / (S.view.x1 - S.view.x0) * g.pw; },
+  niceTicks(a, b, n) {
+    const span = b - a, raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p;
+    const step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * p, out = [];
+    for (let v = Math.ceil(a / step) * step; v <= b + step * 1e-9; v += step) out.push(+v.toPrecision(12));
+    return { ticks: out, step };
+  },
+  markers() {
+    const m = [];
+    S.groupInfo.forEach(e => { if (!e.ok) return; for (const g of e.groups) m.push({ name: g.name, sym: e.element, lines: g.lines, preview: false }); });
+    if (S.preview) m.push({ name: S.preview.symbol + " lines", sym: null, lines: S.preview.lines, preview: true });
+    return m;
+  },
+  draw() {
+    const ctx = this.ctx, W = this.W, H = this.H, C = this.C;
+    ctx.clearRect(0, 0, W, H);
+    const empty = $("#empty"); empty.hidden = !!S.spec;
+    if (!S.spec) { this.geo = null; return; }
+    if (!S.view) { const [a, b] = this.range(); S.view = { x0: a, x1: b }; }
+    const L = 62, R = 14, T = 8, B = 26, r = S.result, resH = r ? 86 : 0, gap = r ? 12 : 0;
+    const pw = W - L - R, mh = H - T - B - resH - gap, y0 = T + mh;
+    this.geo = { L, R, T, B, pw, mh, y0, resTop: y0 + gap, resH };
+    const { x0, x1 } = S.view, sx = E => L + (E - x0) / (x1 - x0) * pw;
+    const counts = S.spec.counts, n = counts.length, gain = this.calib().gain;
+    const i0 = Math.max(0, this.idxOf(x0) - 1), i1 = Math.min(n - 1, this.idxOf(x1) + 1);
+    let ymax = 1;
+    for (let i = i0; i <= i1; i++) if (counts[i] > ymax) ymax = counts[i];
+    if (r) for (let j = 0; j < r.fit.length; j++) { const E = r.energy[j]; if (E >= x0 && E <= x1 && r.fit[j] > ymax) ymax = r.fit[j]; }
+    const log = S.logY, floor = 0.5, lmin = Math.log10(floor), lmax = Math.log10(ymax * 2.4);
+    const sy = v => log ? T + mh * (1 - (Math.log10(Math.max(v, floor)) - lmin) / (lmax - lmin)) : T + mh * (1 - v / (ymax * 1.08));
+    // fit region shading
+    if (S.cfg.emin > 0 || S.cfg.emax != null) {
+      ctx.fillStyle = C.grid; const a = Math.max(L, sx(S.cfg.emin || -1e9)), b = Math.min(L + pw, sx(S.cfg.emax ?? 1e9));
+      if (a > L) ctx.fillRect(L, T, a - L, mh + (r ? resH + gap : 0)); if (b < L + pw) ctx.fillRect(b, T, L + pw - b, mh + (r ? resH + gap : 0));
+    }
+    // grid + y axis
+    ctx.font = "11px 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif"; ctx.textBaseline = "middle"; ctx.textAlign = "right";
+    ctx.lineWidth = 1; ctx.strokeStyle = C.grid; ctx.fillStyle = C.t2;
+    let yt = [];
+    if (log) { for (let p = Math.ceil(lmin); p <= Math.floor(lmax); p++) yt.push(Math.pow(10, p)); if (lmin < 0) yt.unshift(1); yt = [...new Set(yt)].filter(v => v >= 1); }
+    else yt = this.niceTicks(0, ymax * 1.08, 5).ticks;
+    ctx.beginPath(); for (const v of yt) { const y = Math.round(sy(v)) + .5; ctx.moveTo(L, y); ctx.lineTo(L + pw, y); } ctx.stroke();
+    for (const v of yt) ctx.fillText(fmtK(v), L - 8, Math.round(sy(v)));
+    ctx.textAlign = "left"; ctx.fillStyle = C.t3; ctx.fillText("counts", 6, T + 2);
+    // x axis
+    const xt = this.niceTicks(x0, x1, Math.max(4, Math.floor(pw / 90)));
+    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.strokeStyle = C.grid;
+    const axisY = r ? this.geo.resTop + resH : y0;
+    ctx.beginPath(); for (const v of xt.ticks) { const x = Math.round(sx(v)) + .5; ctx.moveTo(x, T); ctx.lineTo(x, axisY); } ctx.stroke();
+    ctx.fillStyle = C.t2; const dec = Math.max(0, -Math.floor(Math.log10(xt.step)));
+    for (const v of xt.ticks) ctx.fillText(v.toFixed(dec), sx(v), axisY + 6);
+    ctx.textAlign = "right"; ctx.fillStyle = C.t3; ctx.fillText("keV", L - 8, axisY + 6); ctx.textAlign = "center";
+    // clip plot area
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, mh); ctx.clip();
+    // components (net peak on background)
+    if (r && !S.hidden.has("comps")) {
+      ctx.lineWidth = 1.5; ctx.lineJoin = "round";
+      for (const [k, v] of Object.entries(r.components)) {
+        const sym = k.startsWith("sum:") ? null : symOf(k); if (sym && S.hidden.has("el:" + sym)) continue;
+        ctx.strokeStyle = sym ? this.col(sym) : C.t3; ctx.globalAlpha = .95; ctx.beginPath(); let pen = false;
+        for (let j = 0; j < v.length; j++) { const E = r.energy[j]; if (E < x0 - gain || E > x1 + gain) { pen = false; continue; }
+          const val = v[j] + r.background[j]; if (v[j] < 1e-3 && log) { pen = false; continue; } const x = sx(E), y = sy(val); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // background
+    if (r && !S.hidden.has("bg")) { ctx.strokeStyle = C.t3; ctx.lineWidth = 1.5; ctx.beginPath(); let pen = false;
+      for (let j = 0; j < r.background.length; j++) { const E = r.energy[j]; if (E < x0 - gain || E > x1 + gain) { pen = false; continue; } const x = sx(E), y = sy(r.background[j]); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } } ctx.stroke(); }
+    // data (step line)
+    if (!S.hidden.has("data")) {
+      ctx.strokeStyle = C.t2; ctx.globalAlpha = .72; ctx.lineWidth = 1; ctx.beginPath(); let pen = false;
+      for (let i = i0; i <= i1; i++) { const c = counts[i]; if (log && c < floor) { pen = false; continue; }
+        const xa = sx(this.eOf(i - .5)), xb = sx(this.eOf(i + .5)), y = sy(c); if (!pen) { ctx.moveTo(xa, y); pen = true; } else ctx.lineTo(xa, y); ctx.lineTo(xb, y); }
+      ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    // fit
+    if (r && !S.hidden.has("fit")) { ctx.strokeStyle = C.t1; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath(); let pen = false;
+      for (let j = 0; j < r.fit.length; j++) { const E = r.energy[j]; if (E < x0 - gain || E > x1 + gain) { pen = false; continue; } const x = sx(E), y = sy(r.fit[j]); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } } ctx.stroke(); }
+    ctx.restore();
+    // line rug: where the chosen lines sit, tick height follows relative intensity
+    if (!S.hidden.has("rug")) {
+      const ms = this.markers(), labels = [];
+      ctx.lineWidth = 2; ctx.lineCap = "butt";
+      for (const m of ms) {
+        ctx.strokeStyle = m.preview ? C.t3 : this.col(m.sym); ctx.globalAlpha = m.preview ? .7 : .95;
+        let best = null;
+        for (const ln of m.lines) { if (ln.E < x0 || ln.E > x1) continue; const x = Math.round(sx(ln.E)), ht = 5 + 26 * Math.sqrt(ln.w);
+          ctx.beginPath(); ctx.moveTo(x, y0 - 1); ctx.lineTo(x, y0 - 1 - ht); ctx.stroke(); if (!best || ln.w > best.w) best = { x, w: ln.w, ht }; }
+        if (best) labels.push({ name: m.name, x: best.x, y: y0 - 1 - best.ht - 3 });
+      }
+      ctx.globalAlpha = 1; ctx.font = "11px 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "bottom"; ctx.fillStyle = C.t2;
+      labels.sort((a, b) => a.x - b.x); let lastR = -1e9;
+      for (const lb of labels) { const w = ctx.measureText(lb.name).width; if (lb.x - w / 2 > lastR + 6) { ctx.fillText(lb.name, lb.x, lb.y); lastR = lb.x + w / 2; } }
+    }
+    // residuals
+    if (r) {
+      const top = this.geo.resTop; ctx.save(); ctx.beginPath(); ctx.rect(L, top, pw, resH); ctx.clip();
+      const res = r.data.map((d, j) => (d - r.fit[j]) / Math.sqrt(Math.max(r.fit[j], 1)));
+      let m = 3; for (let j = 0; j < res.length; j++) { const E = r.energy[j]; if (E >= x0 && E <= x1) m = Math.max(m, Math.min(12, Math.abs(res[j]))); }
+      m = Math.ceil(m); const ry = v => top + resH / 2 - v / m * (resH / 2 - 4);
+      ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(L, Math.round(ry(0)) + .5); ctx.lineTo(L + pw, Math.round(ry(0)) + .5); ctx.stroke();
+      ctx.strokeStyle = C.t2; ctx.lineWidth = 1; ctx.beginPath(); let pen = false;
+      for (let j = 0; j < res.length; j++) { const E = r.energy[j]; if (E < x0 - gain || E > x1 + gain) { pen = false; continue; } const x = sx(E), y = ry(Math.max(-m, Math.min(m, res[j]))); if (pen) ctx.lineTo(x, y); else { ctx.moveTo(x, y); pen = true; } } ctx.stroke();
+      ctx.restore(); ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillStyle = C.t2;
+      for (const v of [-m, 0, m]) ctx.fillText((v > 0 ? "+" : "") + v, L - 8, ry(v));
+      ctx.textAlign = "left"; ctx.fillStyle = C.t3; ctx.textBaseline = "top"; ctx.fillText("residual (σ)", L + 6, top + 2);
+    }
+    // crosshair
+    if (S.cursor != null) {
+      const E = this.eOf(S.cursor), x = Math.round(sx(E)) + .5;
+      if (E >= x0 && E <= x1) { ctx.strokeStyle = C.t3; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, axisY); ctx.stroke();
+        const c = counts[S.cursor]; if (!S.hidden.has("data") && !(log && c < floor)) { ctx.fillStyle = C.t2; ctx.strokeStyle = C.surface; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, sy(c), 4, 0, 6.2832); ctx.stroke(); ctx.fill(); } }
+    }
+  },
+};
+
+/* =========================== legend =========================== */
+function renderLegend() {
+  const lg = $("#legend"); lg.replaceChildren();
+  if (!S.spec) return;
+  const item = (key, label, swatch) => {
+    const b = h("button", { class: "lg", "aria-pressed": String(!S.hidden.has(key)), onclick: () => { S.hidden.has(key) ? S.hidden.delete(key) : S.hidden.add(key); renderLegend(); plot.draw(); } }, swatch, label);
+    lg.append(b);
+  };
+  item("data", "Data", h("i", { style: "border-top-width:1px;border-color:var(--text-2)" }));
+  if (S.result) { item("fit", "Fit", h("i", { style: "border-color:var(--text-1)" })); item("bg", "Background", h("i", { style: "border-color:var(--text-3)" })); }
+  const syms = [...new Set(S.cfg.elements.map(symOf))];
+  if (S.result) for (const s of syms) item("el:" + s, s, h("i", { style: `border-color:${colorOf(s)}` }));
+  else for (const s of syms) lg.append(h("span", { class: "lg", style: "cursor:default" }, h("i", { class: "sq", style: `background:${colorOf(s)}` }), s));
+  if (S.result) item("comps", "Components", h("i", { style: "border-color:var(--text-3);border-top-style:dotted" }));
+  item("rug", "Line markers", h("i", { class: "sq", style: "background:var(--text-2);width:3px;height:12px" }));
+}
+
+/* ========================= elements UI ========================= */
+let groupTimer = null;
+function scheduleGroups() { clearTimeout(groupTimer); groupTimer = setTimeout(refreshGroups, 200); }
+async function refreshGroups() {
+  const cfg = S.cfg;
+  try {
+    const d = await api("/api/groups", { tokens: cfg.elements, free_ratios: cfg.free_ratios, e0: cfg.e0, xs_source: cfg.xs_source });
+    S.groupInfo = d.entries;
+  } catch (e) { S.groupInfo = []; }
+  renderChips(); renderLegend(); plot.draw(); updateFitEnabled();
+}
+function renderChips() {
+  assignSlots();
+  const box = $("#chips"); box.replaceChildren();
+  S.cfg.elements.forEach(tok => {
+    const info = S.groupInfo.find(g => g.token === tok);
+    const names = info && info.ok ? info.groups.map(g => g.name).join(", ") : "";
+    const chip = h("span", { class: "chip" + (info && !info.ok ? " bad" : "") },
+      h("i", { style: `background:${colorOf(symOf(tok))}` }), h("span", { text: tok }),
+      names && names !== tok ? h("small", { text: "→ " + names }) : null,
+      info && !info.ok ? h("small", { text: "no data", title: info.error }) : null,
+      h("button", { "aria-label": "Remove " + tok, title: "Remove", onclick: () => { S.cfg.elements = S.cfg.elements.filter(t => t !== tok); S.groupInfo = S.groupInfo.filter(g => g.token !== tok); renderChips(); renderLegend(); plot.draw(); scheduleGroups(); updateFitEnabled(); } }, "×"));
+    box.append(chip);
+  });
+}
+function normToken(raw) {
+  const t = raw.trim().replace(/\s+/g, ""); if (!t) return "";
+  const [sym, ...rest] = t.split("-"); const s = sym.charAt(0).toUpperCase() + sym.slice(1).toLowerCase();
+  if (!rest.length) return s;
+  const r = rest.join("-"); return s + "-" + (/^[klm]$/i.test(r) ? r.toUpperCase() : r.charAt(0).toUpperCase() + r.slice(1).toLowerCase());
+}
+async function addElement() {
+  const inp = $("#el-input"), err = $("#el-err"); err.hidden = true;
+  const tokens = inp.value.split(/[,\s]+/).filter(Boolean).map(normToken);
+  for (const tok of tokens) {
+    if (S.cfg.elements.includes(tok)) continue;
+    try {
+      const d = await api("/api/groups", { tokens: [tok], free_ratios: S.cfg.free_ratios, e0: S.cfg.e0, xs_source: S.cfg.xs_source });
+      const e = d.entries[0];
+      if (!e.ok) { err.textContent = e.error; err.hidden = false; continue; }
+      S.cfg.elements.push(tok);
+    } catch (e) { err.textContent = e.message; err.hidden = false; }
+  }
+  inp.value = ""; refreshGroups();
+}
+$("#el-add").onclick = addElement;
+$("#el-input").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); addElement(); } });
+
+/* ========================= parameter table ========================= */
+function renderParams() {
+  const t = $("#params"); t.replaceChildren(h("tr", {}, h("th", { text: "Parameter" }), h("th", { text: "Start" }), h("th", { text: "Fit", style: "text-align:center" }), h("th", { text: "Result", style: "text-align:right" })));
+  for (const [k, label] of PARAMS) {
+    const inp = h("input", { type: "number", step: "any", id: "p-" + k, value: S.cfg[k], "aria-label": label + ", start value", oninput: e => { const v = parseFloat(e.target.value); if (isFinite(v)) { S.cfg[k] = v; if (k === "zero" || k === "gain") { S.view = null; plot.draw(); } markStale(); } } });
+    const chk = h("input", { type: "checkbox", checked: S.cfg.free.includes(k), "aria-label": "Fit " + label, onchange: e => { S.cfg.free = e.target.checked ? [...S.cfg.free, k] : S.cfg.free.filter(x => x !== k); markStale(); } });
+    let res = "";
+    if (S.result) { const v = S.result.params[k], er = S.result.param_err[k]; res = h("span", { class: "num" }, fmtSig(v, 5), er != null ? h("span", { text: " ± " + fmtSig(er, 2) }) : null); }
+    t.append(h("tr", {}, h("td", { text: label }), h("td", {}, inp), h("td", { class: "fitcol" }, chk), h("td", { class: "res" }, res)));
+  }
+  $("#use-fitted").disabled = !S.result;
+}
+$("#use-fitted").onclick = () => { if (!S.result) return; for (const [k] of PARAMS) S.cfg[k] = +S.result.params[k].toPrecision(8); renderParams(); setStatus("Start values now match the last fit."); };
+
+/* ========================= other controls ========================= */
+function bindNum(id, key, { nullable = false, after } = {}) {
+  const el = $("#" + id);
+  el.addEventListener("input", () => { const raw = el.value.trim(); if (raw === "" && nullable) S.cfg[key] = null; else { const v = parseFloat(raw); if (!isFinite(v)) return; S.cfg[key] = v; } if (after) after(); markStale(); plot.draw(); });
+}
+bindNum("e0", "e0", { after: scheduleGroups });
+bindNum("snipw", "snip_width"); bindNum("snips", "snip_smooth"); bindNum("poly", "poly_order");
+bindNum("emin", "emin"); bindNum("emax", "emax", { nullable: true });
+$("#xs").onchange = e => { S.cfg.xs_source = e.target.value; scheduleGroups(); markStale(); };
+$("#bg").onchange = e => { S.cfg.background = e.target.value; syncBg(); markStale(); };
+$("#free-ratios").onchange = e => { S.cfg.free_ratios = e.target.checked; scheduleGroups(); markStale(); };
+$("#sum-peaks").onchange = e => { S.cfg.sum_peaks = e.target.checked; markStale(); };
+function syncBg() { const b = S.cfg.background; $("#f-snipw").hidden = $("#f-snips").hidden = !b.includes("snip"); $("#f-poly").hidden = !b.includes("poly"); }
+function syncInputs() {
+  const c = S.cfg; $("#e0").value = c.e0; $("#xs").value = c.xs_source; $("#bg").value = c.background;
+  $("#snipw").value = c.snip_width; $("#snips").value = c.snip_smooth; $("#poly").value = c.poly_order;
+  $("#emin").value = c.emin; $("#emax").value = c.emax ?? ""; $("#free-ratios").checked = c.free_ratios; $("#sum-peaks").checked = c.sum_peaks;
+  syncBg(); renderParams(); renderChips();
+}
+$("#view-region").onclick = () => { if (!S.view) return; S.cfg.emin = +Math.max(0, S.view.x0).toFixed(3); S.cfg.emax = +S.view.x1.toFixed(3); $("#emin").value = S.cfg.emin; $("#emax").value = S.cfg.emax; markStale(); plot.draw(); };
+$("#full-region").onclick = () => { S.cfg.emin = 0; S.cfg.emax = null; $("#emin").value = 0; $("#emax").value = ""; markStale(); plot.draw(); };
+$("#y-log").onclick = () => { S.logY = true; $("#y-log").setAttribute("aria-pressed", "true"); $("#y-lin").setAttribute("aria-pressed", "false"); plot.draw(); };
+$("#y-lin").onclick = () => { S.logY = false; $("#y-lin").setAttribute("aria-pressed", "true"); $("#y-log").setAttribute("aria-pressed", "false"); plot.draw(); };
+$("#reset-view").onclick = () => plot.resetView();
+function markStale() { if (S.result && !S.stale) { S.stale = true; setStatus("Settings changed since the last fit."); } }
+function setStatus(text, isErr) { const el = $("#fit-status"); el.textContent = text; el.className = isErr ? "err" : "hint"; if (isErr) el.setAttribute("role", "alert"); else el.removeAttribute("role"); }
+function updateFitEnabled() { $("#fit").disabled = !(S.spec && S.cfg.elements.length); }
+
+/* ========================== metadata ========================== */
+function renderMeta() {
+  const box = $("#meta"); box.replaceChildren();
+  if (!S.spec) { box.append(h("p", { class: "hint", style: "margin:0", text: "Open a spectrum to see its measurement time, slow filter settings and detector details here." })); return; }
+  const m = S.spec.meta || [];
+  if (!m.length) { box.append(h("p", { class: "hint", style: "margin:0", text: "This file has no metadata." + (S.spec.calib ? "" : " It also has no energy calibration, so set zero and gain below.") })); return; }
+  let hidden = 0;
+  for (const g of m) {
+    if (!g.brief && !S.showAllMeta) { hidden += g.items.length; continue; }
+    const d = h("details", { class: "meta", open: g.brief }, h("summary", {}, h("span", { text: g.title }), h("span", { class: "cnt", text: g.items.length })));
+    const dl = h("dl", { class: "kv" }); for (const [k, v] of g.items) dl.append(h("dt", { text: k }), h("dd", { text: v })); d.append(dl); box.append(d);
+  }
+  if (hidden || S.showAllMeta) box.append(h("button", { class: "btn quiet", style: "margin-top:6px", onclick: () => { S.showAllMeta = !S.showAllMeta; renderMeta(); } }, S.showAllMeta ? "Show main fields only" : `Show all fields (${hidden} more)`));
+  if (!S.spec.calib) box.append(h("p", { class: "hint", text: "No energy calibration in this file. Set zero and gain below." }));
+}
+
+/* ========================= results ========================= */
+function renderAreas() {
+  const p = $("#pane-areas"); p.replaceChildren();
+  const r = S.result;
+  if (!r) { p.append(h("p", { class: "hint", style: "margin:0", text: "Net peak areas, their uncertainties and relative atomic amounts appear here after a fit." })); return; }
+  p.append(h("div", { class: "summary" },
+    h("div", {}, h("span", { class: "lbl", text: "Reduced χ²" }), h("span", { class: "big num", text: r.chi2red.toFixed(2) })),
+    h("div", {}, h("span", { class: "lbl", text: "Region" }), h("span", { class: "num", text: `${r.region[0].toFixed(2)}–${r.region[1].toFixed(2)} keV, ${fmtInt(r.n_points)} points` })),
+    h("div", {}, h("span", { class: "lbl", text: "Live time" }), h("span", { class: "num", text: fmtSig(r.live_time, 5) + " s" })),
+    h("div", { class: "actions" },
+      h("button", { class: "btn", onclick: downloadFitCsv }, "Download fit (CSV)"),
+      h("button", { class: "btn", onclick: saveSettings }, "Save settings"),
+      h("button", { class: "btn", onclick: () => $("#cfg-file").click() }, "Load settings"))));
+  const hasAtoms = r.areas.some(a => a.atoms != null);
+  const tbl = h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Group" }), h("th", { class: "n", text: "Net counts" }), h("th", { class: "n", text: "± σ" }), h("th", { class: "n", text: "Relative σ" }), h("th", { class: "n", text: "Rate (counts/s)" }), hasAtoms ? h("th", { class: "n", text: "Atomic share" }) : null, hasAtoms ? h("th", { text: "Note" }) : null)));
+  const tb = h("tbody");
+  for (const a of r.areas) {
+    const sum = a.name.startsWith("sum:"), rel = a.counts > 0 ? a.sigma / a.counts * 100 : null;
+    tb.append(h("tr", {}, h("td", {}, h("span", { class: "key", style: `background:${sum ? "var(--text-3)" : colorOf(symOf(a.name))}` }), a.name),
+      h("td", { class: "n", text: fmtInt(a.counts) }), h("td", { class: "n", text: fmtInt(a.sigma) }), h("td", { class: "n", text: rel == null ? "–" : (rel < 10 ? rel.toFixed(1) : rel.toFixed(0)) + " %" }),
+      h("td", { class: "n", text: fmtSig(a.cps, 4) }),
+      hasAtoms ? h("td", { class: "n", text: a.atoms == null ? "–" : (a.atoms * 100).toFixed(a.atoms < .01 ? 2 : 1) + " %" }) : null,
+      hasAtoms ? h("td", { text: a.atoms_note || "" }) : null));
+  }
+  tbl.append(tb); p.append(tbl);
+  if (hasAtoms) p.append(h("p", { class: "note", text: `Atomic share = net rate divided by the ${r.xs_source} production cross section at e0 = ${r.e0} keV, normalised to 100 %. It assumes a thin sample and ignores detector efficiency, filters, matrix absorption and secondary excitation.` }));
+  if (S.stale) p.append(h("p", { class: "note", text: "Settings have changed since this fit. Press Fit spectrum to update." }));
+}
+async function downloadFitCsv() {
+  try {
+    const r = await fetch("/api/fit.csv"); if (!r.ok) throw new Error((await r.json()).error || "No fit to download.");
+    const a = h("a", { href: URL.createObjectURL(await r.blob()), download: "xrfit-fit.csv" }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) { setStatus(e.message, true); }
+}
+function saveSettings() {
+  const c = { ...S.cfg }; if (c.emax == null) c.emax = 1e9;
+  const a = h("a", { href: URL.createObjectURL(new Blob([JSON.stringify(c, null, 2)], { type: "application/json" })), download: "xrfit-settings.json" }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+const cfgInput = h("input", { type: "file", id: "cfg-file", accept: ".json", hidden: true, onchange: async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const d = JSON.parse(await f.text()); const n = DEFAULT_CFG(); for (const k of Object.keys(n)) if (k in d) n[k] = d[k]; if (n.emax != null && n.emax >= 1e8) n.emax = null; S.cfg = n; S.groupInfo = []; syncInputs(); refreshGroups(); setStatus("Settings loaded from " + f.name); }
+  catch { setStatus("That file is not a valid settings file.", true); } e.target.value = ""; } });
+document.body.append(cfgInput);
+
+/* ---------- lines tab ---------- */
+function renderLinesPane() {
+  const p = $("#pane-lines"); p.replaceChildren();
+  const inp = h("input", { type: "text", id: "ln-sym", placeholder: "Element, e.g. Pb", list: "el-list", style: "width:150px", autocomplete: "off", spellcheck: "false", "aria-label": "Element to look up" });
+  const go = async () => {
+    const sym = normToken(inp.value); if (!sym) return;
+    try { const d = await api("/api/lines", { symbol: sym, e0: S.cfg.e0, xs_source: S.cfg.xs_source }); S.preview = { symbol: sym, lines: d.rows.map(r => ({ E: r.E_keV, w: r.weight ?? 0.5 })) }; plot.draw(); showLines(d); }
+    catch (e) { out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); S.preview = null; plot.draw(); }
+  };
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  const out = h("div", { style: "margin-top:10px" });
+  p.append(h("div", { class: "row" }, inp, h("button", { class: "btn", onclick: go }, "Show lines"), h("button", { class: "btn quiet", onclick: () => { S.preview = null; out.replaceChildren(); plot.draw(); } }, "Clear markers")),
+    h("p", { class: "hint", text: "Line energies come from X-Ray Data Booklet Table 1-2 (Kβ3, Lβ3 and Ll from xraylib). Rates and production cross sections come from the XRAYLIB tables v2.3 at the excitation energy set under Elements." }), out);
+  p._out = out;
+}
+function showLines(d) {
+  const out = $("#pane-lines")._out;
+  const tb = h("tbody");
+  for (const r of d.rows) tb.append(h("tr", {}, h("td", { text: r.line }), h("td", { class: "n", text: r.E_keV.toFixed(4) }), h("td", { class: "n", text: r.weight == null ? "–" : r.weight.toFixed(3) }), h("td", { class: "n", text: r.rate ? r.rate.toFixed(3) : "–" }),
+    h("td", { class: "n", text: r.sigma_b == null ? "–" : fmtSig(r.sigma_b, 4) }), h("td", { text: r.note || "" })));
+  const edges = Object.entries(d.edges).map(([k, v]) => `${k} ${v} keV`).join("   ");
+  out.replaceChildren(h("div", { style: "margin-bottom:6px" }, h("b", { text: `${d.symbol} (Z = ${d.Z})` }), edges ? h("span", { class: "num", style: "color:var(--text-2);margin-left:14px", text: "Edges: " + edges }) : null),
+    h("table", { class: "data" }, h("thead", {}, h("tr", {}, ["Line", "Energy (keV)", "Weight in group", "Radiative rate", `σ at ${d.e0} keV (barn/atom)`, "Note"].map((t, i) => h("th", { class: i > 0 && i < 5 ? "n" : "", text: t })))), tb));
+}
+
+/* ---------- batch tab ---------- */
+function renderBatchPane() {
+  const p = $("#pane-batch"); p.replaceChildren();
+  const fi = h("input", { type: "file", multiple: true, accept: ".vspc,.csv,.mca,.txt,.dat", id: "batch-files", style: "width:auto" });
+  const status = h("span", { class: "hint", style: "margin:0" }), out = h("div", { style: "margin-top:10px" });
+  const run = h("button", { class: "btn", onclick: async () => {
+    if (!S.cfg.elements.length) { status.textContent = "Add at least one element first."; return; }
+    if (!fi.files.length) { status.textContent = "Choose spectra to fit."; return; }
+    status.textContent = "Fitting " + fi.files.length + " spectra…"; run.disabled = true;
+    try {
+      const files = []; for (const f of [...fi.files]) files.push({ name: f.name, b64: await toB64(f) });
+      const d = await api("/api/batch", { config: S.cfg, files }); status.textContent = `${d.rows.length} spectra fitted. Each fit starts from the previous result.`; showBatch(out, d);
+    } catch (e) { status.textContent = ""; out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+    run.disabled = false; } }, "Fit all with current settings");
+  p.append(h("div", { class: "row", style: "flex-wrap:wrap" }, fi, run, status), out);
+}
+function toB64(file) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => rej(new Error("Could not read " + file.name)); r.readAsDataURL(file); }); }
+function showBatch(out, d) {
+  const head = h("tr", {}, h("th", { text: "File" }), h("th", { class: "n", text: "Live time (s)" }), h("th", { class: "n", text: "Reduced χ²" }), d.groups.map(g => h("th", { class: "n", text: g })));
+  const tb = h("tbody");
+  for (const r of d.rows) tb.append(h("tr", {}, h("td", { text: r.name }), h("td", { class: "n", text: fmtSig(r.live_time, 4) }), h("td", { class: "n", text: r.chi2red.toFixed(2) }), d.groups.map(g => { const a = r.areas[g]; return h("td", { class: "n", text: a ? `${fmtInt(a[0])} ± ${fmtInt(a[1])}` : "–" }); })));
+  const csv = ["file,live_time_s,chi2_red," + d.groups.map(g => `${g},${g}_err`).join(",")].concat(d.rows.map(r => [JSON.stringify(r.name), r.live_time, r.chi2red, ...d.groups.flatMap(g => r.areas[g] ? r.areas[g] : ["", ""])].join(","))).join("\n");
+  const a = h("a", { class: "btn", href: URL.createObjectURL(new Blob([csv + "\n"], { type: "text/csv" })), download: "xrfit-batch.csv", text: "Download table (CSV)" });
+  out.replaceChildren(h("div", { class: "row", style: "margin-bottom:8px" }, a), h("table", { class: "data" }, h("thead", {}, head), tb));
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
+  for (const id of ["areas", "lines", "batch"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
+  if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
+}));
+
+/* ========================== loading ========================== */
+function applySpectrum(d, isExample) {
+  S.spec = { name: d.name, counts: Float64Array.from(d.counts), calib: d.calib, live_time: d.live_time, meta: d.meta };
+  S.result = null; S.stale = false; S.view = null; S.cursor = null; S.preview = null; S.showAllMeta = false;
+  const sug = d.suggest || {};
+  if (isExample) { S.cfg = Object.assign(DEFAULT_CFG(), sug); S.slot = {}; S.groupInfo = []; }
+  else { if (sug.zero != null) { S.cfg.zero = sug.zero; S.cfg.gain = sug.gain; } if (!d.calib && S.cfg.gain === 0.01 && !S.cfg.elements.length) { /* keep default */ } }
+  $("#filemeta").replaceChildren(h("b", { text: d.name }), ` · ${d.n.toLocaleString("en-US")} channels · ${fmtInt(d.total)} counts · live time ${fmtSig(d.live_time, 5)} s` + (d.format ? ` · ${d.format}` : ""));
+  syncInputs(); renderMeta(); renderLegend(); renderAreas(); plot.resetView(); updateFitEnabled(); refreshGroups();
+  $("#cv").setAttribute("aria-label", `Spectrum ${d.name}. Use the left and right arrow keys to move the cursor, plus and minus to zoom, 0 to reset.`);
+  setStatus(S.cfg.elements.length ? "Ready to fit." : "Add elements to fit.");
+}
+async function openFile(file) {
+  setStatus("Opening " + file.name + "…");
+  try {
+    const r = await fetch("/api/load", { method: "POST", headers: { "X-Requested-With": "xrfit", "X-Filename": encodeURIComponent(file.name), "Content-Type": "application/octet-stream" }, body: file });
+    const d = await r.json(); if (!r.ok) throw new Error(d.error || "Could not read the file.");
+    applySpectrum(d, false);
+  } catch (e) { setStatus(e.message, true); }
+}
+async function openExample(name) {
+  try { applySpectrum(await api("/api/example?name=" + name), true); } catch (e) { setStatus(e.message, true); }
+}
+$("#open").onclick = $("#empty-open").onclick = () => $("#file").click();
+$("#file").onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ""; };
+$("#ex-syn").onclick = $("#empty-syn").onclick = () => openExample("synthetic");
+$("#ex-ket").onclick = () => openExample("ketek");
+let dragDepth = 0;
+addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; $("#drop").hidden = false; } });
+addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("#drop").hidden = true; });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragDepth = 0; $("#drop").hidden = true; const f = e.dataTransfer.files[0]; if (f) openFile(f); });
+
+/* ============================== fit ============================== */
+async function runFit() {
+  if (!S.spec || !S.cfg.elements.length) return;
+  const btn = $("#fit"); btn.disabled = true; btn.textContent = "Fitting…"; $("#stage").classList.add("busy"); setStatus("Fitting…");
+  try {
+    const t0 = performance.now();
+    S.result = await api("/api/fit", { config: S.cfg }); S.stale = false;
+    S.view = null; plot.resetView();
+    setStatus(`Fit finished in ${((performance.now() - t0) / 1000).toFixed(1)} s. Reduced χ² ${S.result.chi2red.toFixed(2)}.`);
+  } catch (e) { setStatus(e.message, true); }
+  btn.textContent = "Fit spectrum"; $("#stage").classList.remove("busy"); updateFitEnabled();
+  renderParams(); renderAreas(); renderLegend(); plot.draw();
+}
+$("#fit").onclick = runFit;
+addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); runFit(); } });
+
+/* ============================== boot ============================== */
+async function boot() {
+  const th = store.get("xrfit-theme") || "auto"; plot.init(); applyTheme(THEMES.includes(th) ? th : "auto");
+  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderAreas(); renderLegend();
+  try {
+    const d = await api("/api/elements"); $("#el-list").replaceChildren(...d.elements.map(e => h("option", { value: e.symbol, label: "Z = " + e.Z })));
+    const s = await api("/api/session"); if (s.spectrum) applySpectrum(s.spectrum, false);
+  } catch (e) { setStatus("Could not reach the xrfit server: " + e.message, true); }
+}
+boot();
+</script>
+</body>
+</html>

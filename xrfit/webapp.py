@@ -292,6 +292,59 @@ POST_ROUTES = {"/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": a
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 
+# ----------------------------------------------------------------- dispatch
+def dispatch(method, path, headers, raw=b""):
+    """Transport-independent request handler: returns (status, content_type, body_bytes, extra_headers).
+
+    Used by the HTTP server below and by the in-browser (Pyodide) build on GitHub Pages."""
+    u = urlparse(path)
+    js = "application/json; charset=utf-8"
+
+    def j(status, obj):
+        return status, js, json.dumps(clean(obj), allow_nan=False).encode("utf-8"), {}
+
+    try:
+        if method == "GET":
+            if u.path in ("/", "/index.html"):
+                with open(os.path.join(WEB_DIR, "index.html"), "rb") as f:
+                    return 200, "text/html; charset=utf-8", f.read(), {}
+            if u.path == "/favicon.ico":
+                return 204, "image/x-icon", b"", {}
+            if u.path == "/api/fit.csv":
+                with STATE.lock:
+                    res = STATE.result
+                if res is None:
+                    raise ApiError("Run a fit first.", 404)
+                return 200, "text/csv; charset=utf-8", fit_csv(res).encode("utf-8"), \
+                    {"Content-Disposition": 'attachment; filename="xrfit-fit.csv"'}
+            fn = GET_ROUTES.get(u.path)
+            if fn:
+                return j(200, fn(None, parse_qs(u.query)))
+            return 404, "text/plain", b"Not found", {}
+        if headers.get("X-Requested-With") != "xrfit":  # blocks cross-site form posts
+            return 403, "text/plain", b"Missing X-Requested-With header", {}
+        if len(raw) > MAX_BODY:
+            raise ApiError("File is too large (limit 256 MB).", 413)
+        if u.path == "/api/load":
+            name = os.path.basename(requote(headers.get("X-Filename", "spectrum.txt"))) or "spectrum.txt"
+            try:
+                spec = load_bytes(name, raw)
+            except Exception as e:
+                raise ApiError(f"Could not read {name}: {e}") from e
+            return j(200, set_spectrum(spec))
+        fn = POST_ROUTES.get(u.path)
+        if not fn:
+            return 404, "text/plain", b"Not found", {}
+        body = json.loads(raw.decode("utf-8") or "{}")
+        return j(200, fn(body, parse_qs(u.query)))
+    except ApiError as e:
+        return j(e.status, {"error": str(e)})
+    except json.JSONDecodeError:
+        return j(400, {"error": "Request body is not valid JSON."})
+    except Exception as e:  # surface unexpected problems in the UI instead of a blank page
+        return j(500, {"error": f"{type(e).__name__}: {e}"})
+
+
 # ------------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "xrfit-web"
@@ -300,81 +353,41 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # keep the terminal quiet
         pass
 
-    def _send(self, status, body, ctype="application/json; charset=utf-8", extra=None):
-        data = body if isinstance(body, bytes) else body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        for k, v in (extra or {}).items():
-            self.send_header(k, v)
-        self.end_headers()
-        self.wfile.write(data)
-
-    def _json(self, status, obj):
-        self._send(status, json.dumps(clean(obj), allow_nan=False))
-
     def _host_ok(self):
         if self.allowed_hosts is None:
             return True
         return (self.headers.get("Host") or "").lower() in self.allowed_hosts
 
-    def do_GET(self):
+    def _handle(self, method):
         if not self._host_ok():
-            return self._send(403, "Forbidden host", "text/plain")
-        u = urlparse(self.path)
-        try:
-            if u.path in ("/", "/index.html"):
-                with open(os.path.join(WEB_DIR, "index.html"), "rb") as f:
-                    return self._send(200, f.read(), "text/html; charset=utf-8")
-            if u.path == "/favicon.ico":
-                return self._send(204, b"", "image/x-icon")
-            if u.path == "/api/fit.csv":
-                with STATE.lock:
-                    res = STATE.result
-                if res is None:
-                    raise ApiError("Run a fit first.", 404)
-                return self._send(200, fit_csv(res), "text/csv; charset=utf-8",
-                                  {"Content-Disposition": 'attachment; filename="xrfit-fit.csv"'})
-            fn = GET_ROUTES.get(u.path)
-            if fn:
-                return self._json(200, fn(None, parse_qs(u.query)))
-            self._send(404, "Not found", "text/plain")
-        except ApiError as e:
-            self._json(e.status, {"error": str(e)})
-        except Exception as e:  # surface unexpected problems in the UI instead of a blank page
-            self._json(500, {"error": f"{type(e).__name__}: {e}"})
+            status, ctype, data, extra = 403, "text/plain", b"Forbidden host", {}
+        else:
+            raw = b""
+            if method == "POST":
+                n = int(self.headers.get("Content-Length") or 0)
+                if n > MAX_BODY:
+                    status, ctype, data, extra = 413, "application/json", b'{"error": "File is too large (limit 256 MB)."}', {}
+                    return self._reply(status, ctype, data, extra)
+                raw = self.rfile.read(n)
+            status, ctype, data, extra = dispatch(method, self.path, self.headers, raw)
+        self._reply(status, ctype, data, extra)
+
+    def _reply(self, status, ctype, data, extra):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        for k, v in extra.items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self):
+        self._handle("GET")
 
     def do_POST(self):
-        if not self._host_ok():
-            return self._send(403, "Forbidden host", "text/plain")
-        if self.headers.get("X-Requested-With") != "xrfit":  # blocks cross-site form posts
-            return self._send(403, "Missing X-Requested-With header", "text/plain")
-        u = urlparse(self.path)
-        try:
-            n = int(self.headers.get("Content-Length") or 0)
-            if n > MAX_BODY:
-                raise ApiError("File is too large (limit 256 MB).", 413)
-            raw = self.rfile.read(n)
-            if u.path == "/api/load":
-                name = os.path.basename(requote(self.headers.get("X-Filename", "spectrum.txt"))) or "spectrum.txt"
-                try:
-                    spec = load_bytes(name, raw)
-                except Exception as e:
-                    raise ApiError(f"Could not read {name}: {e}") from e
-                return self._json(200, set_spectrum(spec))
-            fn = POST_ROUTES.get(u.path)
-            if not fn:
-                return self._send(404, "Not found", "text/plain")
-            body = json.loads(raw.decode("utf-8") or "{}")
-            return self._json(200, fn(body, parse_qs(u.query)))
-        except ApiError as e:
-            self._json(e.status, {"error": str(e)})
-        except json.JSONDecodeError:
-            self._json(400, {"error": "Request body is not valid JSON."})
-        except Exception as e:
-            self._json(500, {"error": f"{type(e).__name__}: {e}"})
+        self._handle("POST")
 
 
 def requote(s):
