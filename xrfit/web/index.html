@@ -153,6 +153,17 @@ table.beam td.cb { text-align: center; }
 table.beam button { border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 0 5px; border-radius: 50%; }
 table.beam button:hover { color: var(--text-1); background: var(--surface-3); }
 .beamscroll { max-height: 260px; overflow: auto; }
+.layer { border: 1px solid var(--line); border-radius: 8px; background: var(--surface-1); padding: 10px; margin-top: 10px; }
+.layer h3 { margin: 0 0 8px; font-size: 12px; font-weight: 650; display: flex; justify-content: space-between; gap: 8px; }
+.layer h3 span { font-weight: 400; color: var(--text-3); }
+.layer textarea { width: 100%; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface-1); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; resize: vertical; min-height: 58px; }
+.layer textarea[aria-invalid=true] { border-color: var(--danger); }
+.layer .echo { font-size: 12px; color: var(--text-2); margin: 4px 0 0; min-height: 17px; }
+.layer .echo.bad { color: var(--danger); }
+.layer .grid2 { margin-top: 8px; align-items: end; }
+.mxlayer { margin-bottom: 14px; }
+.mxlayer h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; }
+.mxlayer h3 span { font-weight: 400; color: var(--text-2); margin-left: 8px; }
 /* result tables */
 table.data { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
 table.data th { text-align: left; font-weight: 600; color: var(--text-2); border-bottom: 1px solid var(--line); padding: 4px 12px 6px 0; white-space: nowrap; position: sticky; top: -12px; background: var(--surface-1); }
@@ -251,6 +262,31 @@ table.data tr:hover td { background: var(--surface-2); }
         <p class="hint">The weight is the relative photon intensity at that energy and sets the line intensities of each element. Add <b>scatter</b> to a line to fit a Rayleigh and a Compton peak for it. Delete a line to remove that energy.</p>
       </section>
 
+      <section class="blk" id="blk-matrix">
+        <h2>Sample matrix</h2>
+        <div class="grid2">
+          <div class="field"><label for="n-layers">Number of layers</label>
+            <select id="n-layers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+          <div class="field"><label for="mx-k">Instrument factor K</label><input type="text" id="mx-k" inputmode="decimal" placeholder="e.g. 5e7"></div>
+        </div>
+        <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="mx-fitk"> Fit K from the data</label></div>
+        <div id="layers"></div>
+        <div class="grid2" style="margin-top:10px">
+          <div class="field"><label for="a-in">Beam angle to surface (°)</label><input type="number" id="a-in" min="1" max="90" step="any"></div>
+          <div class="field"><label for="a-out">Detector angle to surface (°)</label><input type="number" id="a-out" min="1" max="90" step="any"></div>
+        </div>
+        <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--text-2)">Detector and path</summary>
+          <div class="grid2" style="margin-top:8px">
+            <div class="field"><label for="d-si">Si thickness (mm)</label><input type="number" id="d-si" min="0" step="any"></div>
+            <div class="field"><label for="d-be">Be window (µm)</label><input type="number" id="d-be" min="0" step="any"></div>
+            <div class="field"><label for="d-air">Air path (mm)</label><input type="number" id="d-air" min="0" step="any"></div>
+          </div>
+        </details>
+        <div class="row" style="margin-top:10px"><button class="btn" id="mx-run">Calculate composition</button></div>
+        <div class="err" id="mx-err" role="alert" hidden></div>
+        <p class="hint">Layer 1 faces the beam and detector. The last layer is infinitely thick. Write each element as <b>Fe 70</b> (wt %), <b>Cr ?</b> (found from the fitted lines) or <b>O balance</b> (the rest). A formula such as <b>SiO2</b> works too. Needs a fit first.</p>
+      </section>
+
       <section class="blk">
         <h2>Elements</h2>
         <div class="row">
@@ -320,10 +356,12 @@ table.data tr:hover td { background: var(--surface-2); }
     <section class="results" aria-label="Results">
       <div class="tabs" role="tablist">
         <button class="tab" role="tab" aria-selected="true" data-pane="areas" id="t-areas">Net areas</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="matrix" id="t-matrix">Matrix</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="lines" id="t-lines">Line data</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="batch" id="t-batch">Batch</button>
       </div>
       <div class="pane" id="pane-areas" role="tabpanel" aria-labelledby="t-areas"></div>
+      <div class="pane" id="pane-matrix" role="tabpanel" aria-labelledby="t-matrix" hidden></div>
       <div class="pane" id="pane-lines" role="tabpanel" aria-labelledby="t-lines" hidden></div>
       <div class="pane" id="pane-batch" role="tabpanel" aria-labelledby="t-batch" hidden></div>
     </section>
@@ -360,11 +398,14 @@ const fmtK = n => n >= 1e4 ? (n / 1e3).toLocaleString("en-US", { maximumFraction
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 
 /* ============================== state ============================== */
+const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false });
+const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0 } });
 const DEFAULT_CFG = () => ({
   elements: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
   free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
   sum_peaks: false, free_ratios: false, e0: 20, xs_source: "xraylib",
   beam: [{ energy: 20, weight: 1, use: true, scatter: false }], scatter_angle: 90, compton_broad: 0.2,
+  matrix: defaultMatrix(),
 });
 const S = {
   spec: null,            // {name, counts, calib, live_time, meta}
@@ -781,7 +822,7 @@ function syncInputs() {
   const c = S.cfg; syncE0(); $("#angle").value = c.scatter_angle; $("#xs").value = c.xs_source; $("#bg").value = c.background;
   $("#snipw").value = c.snip_width; $("#snips").value = c.snip_smooth; $("#poly").value = c.poly_order;
   $("#emin").value = c.emin; $("#emax").value = c.emax ?? ""; $("#free-ratios").checked = c.free_ratios; $("#sum-peaks").checked = c.sum_peaks;
-  syncBg(); renderBeam(); renderParams(); renderChips();
+  syncBg(); renderBeam(); syncMatrix(); renderParams(); renderChips();
 }
 $("#view-region").onclick = () => { if (!S.view) return; S.cfg.emin = +Math.max(0, S.view.x0).toFixed(3); S.cfg.emax = +S.view.x1.toFixed(3); $("#emin").value = S.cfg.emin; $("#emax").value = S.cfg.emax; markStale(); plot.draw(); };
 $("#full-region").onclick = () => { S.cfg.emin = 0; S.cfg.emax = null; $("#emin").value = 0; $("#emax").value = ""; markStale(); plot.draw(); };
@@ -791,6 +832,96 @@ $("#reset-view").onclick = () => plot.resetView();
 function markStale() { if (S.result && !S.stale) { S.stale = true; setStatus("Settings changed since the last fit."); } }
 function setStatus(text, isErr) { const el = $("#fit-status"); el.textContent = text; el.className = isErr ? "err" : "hint"; if (isErr) el.setAttribute("role", "alert"); else el.removeAttribute("role"); }
 function updateFitEnabled() { $("#fit").disabled = !(S.spec && S.cfg.elements.length); }
+
+/* ========================== sample matrix ========================== */
+const mx = () => S.cfg.matrix;
+let echoTimers = {};
+function echoText(entries) {
+  return entries.map(e => e.mode === "fixed" ? `${e.element} ${(e.value * 100).toFixed(e.value * 100 < 10 ? 2 : 1)} %` : e.mode === "unknown" ? `${e.element} ?` : `${e.element} balance`).join(",  ");
+}
+async function echoLayer(i) {
+  const L = mx().layers[i], box = document.querySelector(`#layer-${i} .echo`), ta = document.querySelector(`#layer-${i} textarea`);
+  if (!box) return;
+  if (!L.composition.trim()) { box.textContent = ""; box.classList.remove("bad"); ta.removeAttribute("aria-invalid"); return; }
+  try {
+    const d = await api("/api/composition", { text: L.composition });
+    if (document.querySelector(`#layer-${i} textarea`) !== ta) return;
+    box.classList.toggle("bad", !!d.error); box.textContent = d.error || echoText(d.entries);
+    d.error ? ta.setAttribute("aria-invalid", "true") : ta.removeAttribute("aria-invalid");
+    if (!d.error && d.entries.length === 1 && d.entries[0].mode === "fixed") {
+      const dens = document.querySelector(`#layer-${i} .dens`); if (dens && !L.density) dens.placeholder = "element default";
+    }
+  } catch (e) { box.textContent = ""; }
+}
+function renderLayers() {
+  const m = mx(), n = m.layers.length, host = $("#layers"); host.replaceChildren();
+  $("#n-layers").value = String(n);
+  m.layers.forEach((L, i) => {
+    const last = i === n - 1;
+    const ta = h("textarea", { rows: 3, spellcheck: "false", autocomplete: "off", placeholder: "Fe 70\nCr ?\nO balance", "aria-label": `Composition of layer ${i + 1}`, oninput: e => { L.composition = e.target.value; clearTimeout(echoTimers[i]); echoTimers[i] = setTimeout(() => echoLayer(i), 300); } });
+    ta.value = L.composition;
+    const thick = h("input", { type: "number", min: "0", step: "any", value: last ? "" : L.thickness_um, disabled: last, placeholder: last ? "infinite" : "", "aria-label": `Thickness of layer ${i + 1} in µm`, oninput: e => { L.thickness_um = e.target.value; } });
+    host.append(h("div", { class: "layer", id: `layer-${i}` },
+      h("h3", {}, h("b", { text: `Layer ${i + 1}` }), h("span", { text: n === 1 ? "bulk, infinitely thick" : i === 0 ? "top, faces the beam" : last ? "substrate, infinitely thick" : "" })),
+      h("div", { class: "field" }, h("label", { text: "Name (optional)" }), h("input", { type: "text", value: L.name, placeholder: last ? "Substrate" : "Coating", oninput: e => { L.name = e.target.value; } })),
+      h("div", { class: "field", style: "margin-top:8px" }, h("label", { text: "Composition" }), ta, h("div", { class: "echo", "aria-live": "polite" })),
+      h("div", { class: "grid2" },
+        h("div", { class: "field" }, h("label", { text: "Density (g/cm³)" }), h("input", { type: "number", class: "dens", min: "0", step: "any", value: L.density, "aria-label": `Density of layer ${i + 1}`, oninput: e => { L.density = e.target.value; } })),
+        h("div", { class: "field" }, h("label", { text: "Thickness (µm)" }), thick,
+          last ? null : h("label", { class: "chk", style: "margin-top:4px" }, h("input", { type: "checkbox", checked: L.fit_thickness, onchange: e => { L.fit_thickness = e.target.checked; } }), "Fit thickness")))));
+    echoLayer(i);
+  });
+}
+$("#n-layers").onchange = e => {
+  const n = +e.target.value, ls = mx().layers;
+  while (ls.length < n) ls.unshift(newLayer());   // new layers go on top, so the substrate keeps its place at the end
+  while (ls.length > n) ls.shift();
+  renderLayers();
+};
+function syncMatrix() {
+  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-k").disabled = false;
+  $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out;
+  const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm;
+  renderLayers();
+}
+$("#mx-k").addEventListener("input", e => { mx().k = e.target.value; });
+$("#mx-fitk").onchange = e => { mx().fit_k = e.target.checked; };
+for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
+for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
+$("#mx-run").onclick = async () => {
+  const err = $("#mx-err"); err.hidden = true;
+  if (!S.result) { err.textContent = "Fit the spectrum first. The calculation uses the fitted net areas."; err.hidden = false; return; }
+  const btn = $("#mx-run"); btn.disabled = true; btn.textContent = "Calculating…";
+  try {
+    S.matrixResult = await api("/api/matrix", { matrix: mx() }); S.matrixStale = false;
+    document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.pane === "matrix")));
+    for (const id of ["areas", "matrix", "lines", "batch"]) $("#pane-" + id).hidden = id !== "matrix";
+    renderMatrixPane();
+    const K = S.matrixResult.k; if (S.matrixResult.k_fitted) setStatus(`Matrix calculation done. Fitted K = ${fmtSig(K, 4)}.`); else setStatus("Matrix calculation done.");
+  } catch (e) { err.textContent = e.message; err.hidden = false; }
+  btn.disabled = false; btn.textContent = "Calculate composition";
+};
+function renderMatrixPane() {
+  const p = $("#pane-matrix"); p.replaceChildren(); const r = S.matrixResult;
+  if (!r) { p.append(h("p", { class: "hint", style: "margin:0", text: "Describe the layers under Sample matrix, fit the spectrum, then press Calculate composition." })); return; }
+  const pm = (v, s, d = 2) => s == null ? fmtSig(v, 4) : `${v.toFixed(d)} ± ${s.toFixed(d)}`;
+  p.append(h("div", { class: "summary" },
+    h("div", {}, h("span", { class: "lbl", text: "Instrument factor K" }), h("span", { class: "big num", text: fmtSig(r.k, 4) }), r.k_sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + fmtSig(r.k_sigma, 2) }) : null, h("span", { style: "color:var(--text-3);margin-left:6px", text: r.k_fitted ? "fitted" : "given" })),
+    h("div", {}, h("span", { class: "lbl", text: "Fitted quantities" }), h("span", { class: "num", text: `${r.n_free} from ${r.n_data} line groups` })),
+    r.chi2red != null ? h("div", {}, h("span", { class: "lbl", text: "Reduced χ²" }), h("span", { class: "num", text: r.chi2red.toFixed(2) })) : null));
+  for (const L of r.layers) {
+    const t = L.infinite ? "infinitely thick" : `${L.fit_thickness && L.thickness_sigma != null ? pm(L.thickness_um, L.thickness_sigma, 2) : fmtSig(L.thickness_um, 4)} µm${L.fit_thickness ? " (fitted)" : ""}`;
+    p.append(h("div", { class: "mxlayer" }, h("h3", {}, L.name, h("span", { text: `${t}, ${fmtSig(L.density, 4)} g/cm³` })),
+      h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Element" }), h("th", { class: "n", text: "Amount (wt %)" }), h("th", { class: "n", text: "± σ" }), h("th", { text: "Basis" }))),
+        h("tbody", {}, L.composition.map(c => h("tr", {}, h("td", { text: c.element }), h("td", { class: "n", text: c.wt_pct.toFixed(c.wt_pct < 10 ? 3 : 2) }), h("td", { class: "n", text: c.sigma == null ? "–" : c.sigma.toFixed(3) }),
+          h("td", { text: c.mode === "fixed" ? "given" : c.mode === "unknown" ? "from the fitted lines" : "balance (rest to 100 %)" })))))));
+  }
+  p.append(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Line group" }), h("th", { class: "n", text: "Measured (cps)" }), h("th", { class: "n", text: "Calculated (cps)" }), h("th", { class: "n", text: "Calculated / measured" }))),
+    h("tbody", {}, r.groups.map(g => h("tr", {}, h("td", {}, h("span", { class: "key", style: `background:${colorOf(symOf(g.name))}` }), g.name), h("td", { class: "n", text: fmtSig(g.measured, 4) }), h("td", { class: "n", text: fmtSig(g.predicted, 4) }), h("td", { class: "n", text: g.ratio == null ? "–" : g.ratio.toFixed(3) }))))));
+  if (r.notes.length) p.append(h("ul", { class: "note", style: "padding-left:18px" }, r.notes.map(n => h("li", { text: n }))));
+  if (S.matrixStale) p.append(h("p", { class: "note", text: "The spectrum was fitted again after this calculation. Press Calculate composition to update." }));
+  p.append(h("p", { class: "note", text: "Primary excitation only: each layer absorbs the beam and the emitted lines as described, but fluorescence excited by other lines of the sample (secondary excitation), scatter and sample roughness are not included. With a balance element, enter K from a standard." }));
+}
 
 /* ========================== metadata ========================== */
 function renderMeta() {
@@ -848,7 +979,7 @@ function saveSettings() {
 }
 const cfgInput = h("input", { type: "file", id: "cfg-file", accept: ".json", hidden: true, onchange: async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const d = JSON.parse(await f.text()); const n = DEFAULT_CFG(); for (const k of Object.keys(n)) if (k in d) n[k] = d[k]; if (n.emax != null && n.emax >= 1e8) n.emax = null; if (!Array.isArray(d.beam) || !d.beam.length) n.beam = [{ energy: n.e0, weight: 1, use: true, scatter: false }]; S.cfg = n; S.groupInfo = []; syncInputs(); refreshGroups(); setStatus("Settings loaded from " + f.name); }
+  try { const d = JSON.parse(await f.text()); const n = DEFAULT_CFG(); for (const k of Object.keys(n)) if (k in d) n[k] = d[k]; if (n.emax != null && n.emax >= 1e8) n.emax = null; if (d.matrix && typeof d.matrix === "object" && Array.isArray(d.matrix.layers) && d.matrix.layers.length) n.matrix = Object.assign(defaultMatrix(), d.matrix); if (!Array.isArray(d.beam) || !d.beam.length) n.beam = [{ energy: n.e0, weight: 1, use: true, scatter: false }]; S.cfg = n; S.groupInfo = []; syncInputs(); refreshGroups(); setStatus("Settings loaded from " + f.name); }
   catch { setStatus("That file is not a valid settings file.", true); } e.target.value = ""; } });
 document.body.append(cfgInput);
 
@@ -906,7 +1037,7 @@ function showBatch(out, d) {
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
-  for (const id of ["areas", "lines", "batch"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
+  for (const id of ["areas", "matrix", "lines", "batch"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
   if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
 }));
 
@@ -949,7 +1080,7 @@ async function runFit() {
   const btn = $("#fit"); btn.disabled = true; btn.textContent = "Fitting…"; $("#stage").classList.add("busy"); setStatus("Fitting…");
   try {
     const t0 = performance.now();
-    S.result = await api("/api/fit", { config: S.cfg }); S.stale = false;
+    S.result = await api("/api/fit", { config: S.cfg }); S.stale = false; if (S.matrixResult) { S.matrixStale = true; renderMatrixPane(); }
     S.view = null; plot.resetView();
     setStatus(`Fit finished in ${((performance.now() - t0) / 1000).toFixed(1)} s. Reduced χ² ${S.result.chi2red.toFixed(2)}.`);
   } catch (e) { setStatus(e.message, true); }
@@ -962,7 +1093,7 @@ addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "En
 /* ============================== boot ============================== */
 async function boot() {
   const th = store.get("xrfit-theme") || "auto"; plot.init(); applyTheme(THEMES.includes(th) ? th : "auto");
-  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderAreas(); renderLegend();
+  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderAreas(); renderMatrixPane(); renderLegend();
   try {
     const d = await api("/api/elements"); $("#el-list").replaceChildren(...d.elements.map(e => h("option", { value: e.symbol, label: "Z = " + e.Z })));
     const s = await api("/api/session"); if (s.spectrum) applySpectrum(s.spectrum, false);

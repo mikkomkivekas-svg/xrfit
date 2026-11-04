@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import core, demo, io_ketek, lines, tube, xdata
+from . import core, demo, io_ketek, lines, matrix, tube, xdata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -132,6 +132,8 @@ def cfg_from_json(d):
             setattr(cfg, k, bool(v))
         elif k == "beam":
             cfg.beam = beam_from_json(v)
+        elif k == "matrix":
+            cfg.matrix = v if isinstance(v, dict) else {}
         elif k == "elements":
             cfg.elements = [str(x) for x in v]
         elif k == "free":
@@ -296,6 +298,27 @@ def api_tube(body, query):
     return {"beam": rows}
 
 
+def api_composition(body, query):
+    try:
+        return {"entries": matrix.parse_composition(str(body.get("text", "")))}
+    except matrix.MatrixError as e:
+        return {"error": str(e)}
+
+
+def api_matrix(body, query):
+    mx = body.get("matrix")
+    if not isinstance(mx, dict):
+        raise ApiError("Describe the sample matrix first.")
+    with STATE.lock:
+        res = STATE.result
+    if res is None:
+        raise ApiError("Fit the spectrum first. The matrix calculation uses the fitted net areas.")
+    try:
+        return matrix.solve(mx, res)
+    except (matrix.MatrixError, KeyError) as e:
+        raise ApiError(msg(e)) from e
+
+
 def api_fit(body, query):
     with STATE.lock:
         if STATE.spec is None:
@@ -340,7 +363,7 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
-POST_ROUTES = {"/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

@@ -20,6 +20,20 @@ Like PyMca's beam table, the excitation is a list with one energy per line: **en
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
 
+## Sample matrix
+
+Describe the sample as 1 to 6 layers (browser: choose the number of layers first, then fill in each; shell: `matrix`). Layer 1 faces the beam and the detector, and **the last layer is infinitely thick**. Each layer has a composition, a density and (except the last) a thickness.
+
+Composition lines: `Fe 70` (wt %), `Cr ?` (amount found from the fitted lines), `O balance` (whatever is left to 100 %, for elements XRF does not see), or a formula such as `SiO2` or `Fe2O3 40`. A single formula or element is the whole layer; the density of a pure element can be left blank.
+
+**What is calculated.** After a fit, *Calculate composition* (shell: `quantify matrix`) predicts the rate of every fitted line group from the layers and compares it with the measured net rate. For element *i* with mass fraction *w* in layer *j*, line *l* and beam energy *E0*:
+
+`rate = K · σ_l(E0) · N_A/A_i · w · T_above · (1 − exp(−χM)) / (χ sin α_in) · ε(E_l)`, with `χ = μ_j(E0)/sin α_in + μ_j(E_l)/sin α_out`
+
+where σ is the production cross section used elsewhere in xrfit, μ the mass attenuation of the layer, M = density × thickness (infinite for the last layer), T_above the attenuation of the layers above, and ε the detector path (air, Be window, Si thickness). The beam can be polychromatic (the incident spectrum list). Unknown amounts, **K** (flux × solid angle, lumped) and layer thicknesses marked *fit* are found by least squares with a start from a Criss–Birks style iteration. K can be fitted when the amounts sum to 100 %; with a balance element, give K from a standard (all amounts fixed, *Fit K* on, then copy the value). Uncertainties come from the fit covariance (shown only when there are fewer unknowns than line groups).
+
+**Left out:** secondary and tertiary excitation (fluorescence of one element exciting another), which PyMca includes; scatter; roughness; grazing-angle effects; the matrix effect on the ratios inside an L-line group. Absorption data are the Elam, Ravel and Sieber tables (cm²/g, 0.1 to 800 keV) via the public-domain XrayDB compilation (`tools/build_attenuation.py`).
+
 ## Browser interface
 
 ```bash
@@ -77,12 +91,12 @@ Known limits of the source data
   The Mo K-shell table has a second row at exactly the K edge (pre-edge xraylib value); also ignored.
 - La2, Lb2 and Ma1 are in Table 1-2 but have no rate or cross section in xraylib: single-line tokens only.
 - Z>90 and Z<5 have no xraylib data (use single lines, e.g. `U-La1`). Ca L2/L3 lines have no cross sections.
+- `xrfit/data/attenuation.json` - mass attenuation (photo, coherent, incoherent) of Z=1-98 and atomic weights/densities, from Elam, Ravel and Sieber (2002) as compiled in XrayDB (public domain, CC0): https://github.com/xraypy/XrayDB. Rebuild with `tools/build_attenuation.py`.
 - 2003 values; current xraylib releases differ slightly.
 
 ## Not implemented (vs. PyMca)
-Full fundamental-parameters quantification (matrix absorption, secondary excitation, multilayers; only the
-thin-sample theory above), tube/excitation-source spectrum, detector/filter attenuation layers, Compton/Rayleigh scatter peaks,
-HDF5/EDF/SPEC I/O, GUI, XRF mapping, photoabsorption/scattering cross-section tables beyond those listed above.
+Secondary/tertiary excitation in the matrix calculation, an Ebel tube model with window and filter, beam polarisation,
+HDF5/EDF/SPEC I/O, XRF mapping.
 
 ## JaBS compatibility
 Same working style as JaBS (command interpreter, `.xrf` scripts like `.jabs` scripts, batch runs).

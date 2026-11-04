@@ -149,3 +149,58 @@ def test_tube_characteristic_lines_share_one_scatter_group():
     base = core.fit(ref, webapp.cfg_from_json({**demo.SUGGEST, "emax": 20.3, "beam": [{"energy": 35, "weight": 1}]}))
     for n in ("Fe-K", "Cu-K", "Zn-K", "Pb-L"):
         assert abs(r.areas[n][0] - base.areas[n][0]) < 3 * r.areas[n][1]
+
+
+def test_attenuation_matches_nist():
+    from xrfit import attenuation as a
+    assert abs(a.mu("Pb", 20.0) - 86.36) < 0.1                       # NIST XCOM, cm2/g
+    water = 0.1119 * a.mu("H", 10.0) + 0.8881 * a.mu("O", 10.0)
+    assert abs(water - 5.329) < 0.02
+
+
+def test_composition_parser():
+    import pytest
+    from xrfit import matrix as M
+    e = {x["element"]: x for x in M.parse_composition("Fe 70\nCr ?\nO balance")}
+    assert e["Fe"]["value"] == 0.7 and e["Cr"]["mode"] == "unknown" and e["O"]["mode"] == "balance"
+    sio2 = {x["element"]: x["value"] for x in M.parse_composition("SiO2")}
+    assert abs(sio2["Si"] - 0.4674) < 1e-3
+    for bad in ("Xx 3", "Fe 120", "Fe 3, Fe ?", "Fe"[:0]):
+        with pytest.raises(M.MatrixError):
+            M.parse_composition(bad)
+
+
+def test_matrix_round_trip():
+    import pytest
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M
+    cfg = core.Config(elements=["Fe", "Cr", "Ni"], beam=[{"energy": 17.44, "weight": 1.0}])
+
+    def result(mx_true, names, K=5e7):
+        m = M.Model(mx_true, names, core.excitation(cfg), "xraylib")
+        fr = [{e["element"]: e["value"] for e in L["entries"]} for L in m.layers]
+        mass = [float("inf") if L["t_um"] is None else L["rho"] * L["t_um"] * 1e-4 for L in m.layers]
+        f = m.predict(fr, mass)
+        return NS(cfg=cfg, live_time=100.0, areas={n: (K * v * 100, (K * v * 100) ** 0.5) for n, v in f.items()})
+
+    geo = {"alpha_in": 45, "alpha_out": 45}
+    # bulk steel, every amount unknown: composition and K come back
+    res = result({"layers": [{"composition": "Fe 70\nCr 18\nNi 12", "density": 7.9}], **geo}, ["Fe-K", "Cr-K", "Ni-K"])
+    r = M.solve({"layers": [{"composition": "Fe ?\nCr ?\nNi ?", "density": 7.9}], "fit_k": True, **geo}, res)
+    got = {c["element"]: c["wt_pct"] for c in r["layers"][0]["composition"]}
+    assert abs(got["Fe"] - 70) < 0.05 and abs(got["Cr"] - 18) < 0.05 and abs(r["k"] / 5e7 - 1) < 1e-3
+    # balance element with a given K
+    r = M.solve({"layers": [{"composition": "Fe balance\nCr ?\nNi ?", "density": 7.9}], "fit_k": False, "k": 5e7, **geo}, res)
+    assert abs({c["element"]: c["wt_pct"] for c in r["layers"][0]["composition"]}["Cr"] - 18) < 0.05
+    # a balance element cannot be combined with a fitted K
+    with pytest.raises(M.MatrixError):
+        M.solve({"layers": [{"composition": "Fe balance\nCr ?", "density": 7.9}], "fit_k": True, **geo}, res)
+    # 5 um Ni coating on Fe: the thickness is recovered
+    res = result({"layers": [{"composition": "Ni", "density": 8.9, "thickness_um": 5}, {"composition": "Fe", "density": 7.87}], **geo},
+                 ["Fe-K", "Ni-K"])
+    r = M.solve({"layers": [{"composition": "Ni", "density": 8.9, "thickness_um": 2, "fit_thickness": True},
+                            {"composition": "Fe", "density": 7.87}], "fit_k": False, "k": 5e7, **geo}, res)
+    assert abs(r["layers"][0]["thickness_um"] - 5) < 0.01
+    # the same element unknown in two layers is rejected
+    with pytest.raises(M.MatrixError):
+        M.solve({"layers": [{"composition": "Fe ?", "density": 7, "thickness_um": 1}, {"composition": "Fe ?", "density": 7}], **geo}, res)

@@ -157,6 +157,7 @@ class Config:
     # Empty = monochromatic beam at e0. Weights set the line intensities (cross sections averaged over the
     # beam); a row with "scatter" adds a Rayleigh peak at E and a Compton peak at E / (1 + E (1 - cos th) / mc2).
     beam: list = field(default_factory=list)
+    matrix: dict = field(default_factory=dict)   # sample layers and geometry, see matrix.py (not used by fit())
     scatter_angle: float = 90.0  # scattering angle th (degrees)
     compton_broad: float = 0.20  # extra Compton peak width, keV FWHM (added in quadrature to the detector width)
 

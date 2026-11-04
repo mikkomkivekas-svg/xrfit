@@ -10,7 +10,7 @@ import glob
 import shlex
 import sys
 
-from . import core, io_ketek, lines, tube, xdata
+from . import core, io_ketek, lines, matrix, tube, xdata
 
 CFG_KEYS = ("zero gain noise fano tail_frac beta step_frac esc_frac emin emax snip_width "
             "snip_smooth poly_order e0 scatter_angle compton_broad").split()
@@ -111,6 +111,57 @@ class Shell(cmd.Cmd):
                   + ("" if b.get("use", True) else "  (off)"))
         print(f"  scattering angle {self.cfg.scatter_angle:g} deg")
 
+    def do_matrix(self, a):
+        "matrix                          show the sample layers\n"\
+        "matrix layers <n>               number of layers (layer 1 is the top, the last is infinitely thick)\n"\
+        "matrix layer <i> comp \"Fe 70; Cr ?; O balance\"   composition: wt %, ? = find from lines, balance = rest; or a formula\n"\
+        "matrix layer <i> density <g/cm3> | thickness <um> [fit] | name <text>\n"\
+        "matrix angles <beam deg> <detector deg>   angles to the surface (default 45 45)\n"\
+        "matrix k <value|fit>            instrument factor (flux x solid angle), or fit it\n"\
+        "matrix detector si=0.5 be=0 air=0   Si thickness (mm), Be window (um), air path (mm)\n"\
+        "then: fit, quantify matrix"
+        t = shlex.split(a)
+        mx = self.cfg.matrix
+        if not mx:
+            mx.update(layers=[{"name": "", "composition": "", "density": "", "thickness_um": "", "fit_thickness": False}],
+                      alpha_in=45, alpha_out=45, k="", fit_k=True, detector={"si_mm": 0.5, "be_um": 0, "air_mm": 0})
+        try:
+            if t[:1] == ["layers"]:
+                n = int(t[1])
+                if not 1 <= n <= 12: raise ValueError("use 1 to 12 layers")
+                while len(mx["layers"]) < n:
+                    mx["layers"].insert(0, {"name": "", "composition": "", "density": "", "thickness_um": "", "fit_thickness": False})
+                del mx["layers"][:max(len(mx["layers"]) - n, 0)]
+            elif t[:1] == ["layer"]:
+                L = mx["layers"][int(t[1]) - 1]
+                key, val = t[2], " ".join(t[3:])
+                if key == "comp":
+                    matrix.parse_composition(val); L["composition"] = val
+                elif key == "density": L["density"] = float(t[3])
+                elif key == "thickness":
+                    L["thickness_um"] = float(t[3]); L["fit_thickness"] = "fit" in t[4:]
+                elif key == "name": L["name"] = val
+                else: raise ValueError("layer <i> comp|density|thickness|name ...")
+            elif t[:1] == ["angles"]:
+                mx["alpha_in"], mx["alpha_out"] = float(t[1]), float(t[2])
+            elif t[:1] == ["k"]:
+                if t[1] == "fit": mx["fit_k"] = True
+                else: mx["k"], mx["fit_k"] = float(t[1]), False
+            elif t[:1] == ["detector"]:
+                for kv in t[1:]:
+                    k, v = kv.split("=")
+                    mx["detector"][{"si": "si_mm", "be": "be_um", "air": "air_mm"}[k]] = float(v)
+            elif t:
+                return print("usage: matrix [layers N | layer I comp|density|thickness|name ... | angles A B | k V|fit | detector si= be= air=]")
+        except (IndexError, ValueError, KeyError, matrix.MatrixError) as e:
+            return print(f"matrix: {e.args[0] if e.args else e}")
+        n = len(mx["layers"])
+        for i, L in enumerate(mx["layers"], 1):
+            th = "infinitely thick" if i == n else f"{L['thickness_um'] or '?'} um" + (" (fit)" if L["fit_thickness"] else "")
+            print(f"  layer {i}{' (top)' if i == 1 and n > 1 else ''}: {L['name'] or '-'}  {th}  density {L['density'] or 'element default'}")
+            print(f"      {L['composition'].replace(chr(10), '; ') or '(no composition yet)'}")
+        print(f"  angles {mx['alpha_in']} / {mx['alpha_out']} deg, K {'fit' if mx['fit_k'] else mx['k']}, detector {mx['detector']}")
+
     def do_free(self, a):
         "free <params...>  - nonlinear parameters to fit (e.g. free zero gain noise tail_frac); 'free none'"
         self.cfg.free = [] if a.strip() == "none" else a.split()
@@ -210,9 +261,27 @@ class Shell(cmd.Cmd):
 
     def do_quantify(self, a):
         "quantify [normalize]  - concentrations using 'calibrate' sensitivities\n"\
-        "quantify theory [raw]  - relative atomic amounts from xraylib cross sections at e0 (normalised unless 'raw')"
+        "quantify theory [raw]  - relative atomic amounts from xraylib cross sections at e0 (normalised unless 'raw')\n"\
+        "quantify matrix       - composition from the layer model (see 'matrix')"
         if not self._need("res"): return
-        if "theory" in a:
+        if "matrix" in a:
+            try:
+                r = matrix.solve(self.cfg.matrix, self.result)
+            except (matrix.MatrixError, KeyError) as e:
+                return print(f"matrix: {e.args[0] if e.args else e}")
+            print(f"  K = {r['k']:.5g} ({'fitted' if r['k_fitted'] else 'given'}), {r['n_free']} quantities from {r['n_data']} line groups"
+                  + (f", reduced chi2 {r['chi2red']:.2f}" if r["chi2red"] is not None else ""))
+            for L in r["layers"]:
+                th = "infinitely thick" if L["infinite"] else f"{L['thickness_um']:.4g} um" + (" (fitted)" if L["fit_thickness"] else "")
+                print(f"  {L['name']}: {th}, {L['density']:g} g/cm3")
+                for c in L["composition"]:
+                    sg = f" +- {c['sigma']:.3g}" if c["sigma"] is not None else ""
+                    print(f"      {c['element']:3s} {c['wt_pct']:9.4f} wt %{sg}   [{c['mode']}]")
+            print("  group        measured cps  calculated cps  calc/meas")
+            for g in r["groups"]:
+                print(f"  {g['name']:10s} {g['measured']:13.5g} {g['predicted']:15.5g} {g['ratio'] if g['ratio'] is None else round(g['ratio'], 4)!s:>10}")
+            for n in r["notes"]: print("  note:", n)
+        elif "theory" in a:
             res = core.quantify_theory(self.result, normalize="raw" not in a)
             print(f"  e0 = {self.cfg.e0:g} keV, cross sections: {self.cfg.xs_source}; thin sample, no detector efficiency/matrix correction")
             for k, (v, note) in res.items(): print(f"  {k:10s} {v:.5g}" + (f"   [{note}]" if note else ""))
