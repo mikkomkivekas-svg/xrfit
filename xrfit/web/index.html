@@ -143,6 +143,9 @@ table.params td.res { text-align: right; white-space: nowrap; font-variant-numer
 table.params td.res span { color: var(--text-3); }
 table.params td.fitcol { text-align: center; width: 34px; }
 
+textarea#beam-text { width: 100%; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface-1); border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; resize: vertical; min-height: 84px; max-height: 320px; font-variant-numeric: tabular-nums; }
+textarea#beam-text:hover { border-color: var(--text-3); }
+textarea#beam-text[aria-invalid=true] { border-color: var(--danger); }
 table.beam td { padding: 2px 3px 2px 0; }
 table.beam input[type=number] { width: 70px; }
 table.beam td.sh { text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; padding-right: 8px; }
@@ -221,11 +224,12 @@ table.data tr:hover td { background: var(--surface-2); }
 
       <section class="blk" id="blk-beam">
         <h2>Incident spectrum</h2>
-        <table class="params beam" id="beam" aria-label="Incident beam energies"></table>
+        <label for="beam-text" class="hint" style="margin:0 0 4px;display:block">One energy per line: <b>energy (keV)</b>, <b>weight</b>, optional <b>scatter</b></label>
+        <textarea id="beam-text" rows="6" spellcheck="false" autocomplete="off" aria-describedby="beam-info"></textarea>
+        <div class="hint" id="beam-info" style="margin-top:4px" aria-live="polite"></div>
         <div class="row" style="margin-top:8px;flex-wrap:wrap">
-          <button class="btn" id="beam-add">Add energy</button>
-          <button class="btn" id="beam-load" title="Text file with columns energy (keV), weight and optional scatter flag">Load table…</button>
-          <button class="btn" id="beam-tube-toggle" aria-expanded="false" aria-controls="tube">Tube spectrum…</button>
+          <button class="btn" id="beam-load" title="Text file with the same format">Load from file…</button>
+          <button class="btn" id="beam-tube-toggle" aria-expanded="false" aria-controls="tube">Generate from X-ray tube…</button>
           <input type="file" id="beam-file" accept=".txt,.csv,.dat,.tsv" hidden>
         </div>
         <div id="tube" hidden style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--surface-1)">
@@ -235,8 +239,8 @@ table.data tr:hover td { background: var(--surface-2); }
             <div class="field"><label for="tube-bins">Continuum steps</label><input type="number" id="tube-bins" value="24" min="3" max="200" step="1"></div>
             <div class="field"><label for="tube-share">Anode lines (% of photons)</label><input type="number" id="tube-share" value="25" min="0" max="95" step="1"></div>
           </div>
-          <div class="row" style="margin-top:8px"><button class="btn" id="tube-fill">Replace table</button></div>
-          <p class="hint">Simplified model: Kramers continuum plus the anode K lines, with no window or filter absorption. For an exact spectrum, compute it elsewhere and load it as a table.</p>
+          <div class="row" style="margin-top:8px"><button class="btn" id="tube-fill">Generate list</button></div>
+          <p class="hint">Simplified model: Kramers continuum plus the anode K lines (none if the voltage is below the anode's K edge, as for W under 69.5 kV), with no window or filter absorption. For an exact spectrum, compute it elsewhere and load it from a file.</p>
         </div>
         <div class="grid2" style="margin-top:10px">
           <div class="field"><label for="angle">Scattering angle (°)</label><input type="number" id="angle" min="1" max="179" step="any"></div>
@@ -244,7 +248,7 @@ table.data tr:hover td { background: var(--surface-2); }
             <select id="xs"><option value="xraylib">xraylib</option><option value="krause">Krause</option></select></div>
         </div>
         <div class="err" id="beam-err" role="alert" hidden></div>
-        <p class="hint">Weight is the relative photon intensity at that energy. The weights set the line intensities of each element. A row with <b>Scatter</b> on adds a Rayleigh and a Compton peak to the fit.</p>
+        <p class="hint">The weight is the relative photon intensity at that energy and sets the line intensities of each element. Add <b>scatter</b> to a line to fit a Rayleigh and a Compton peak for it. Delete a line to remove that energy.</p>
       </section>
 
       <section class="blk">
@@ -712,63 +716,59 @@ function bindNum(id, key, { nullable = false, after } = {}) {
 bindNum("snipw", "snip_width"); bindNum("snips", "snip_smooth"); bindNum("poly", "poly_order");
 bindNum("emin", "emin"); bindNum("emax", "emax", { nullable: true });
 /* ---------- incident spectrum table ---------- */
-function renderBeam() {
-  const t = $("#beam"), tot = usedBeam().reduce((a, b) => a + b.weight, 0);
-  t.replaceChildren(h("thead", {}, h("tr", {}, h("th", { text: "Use" }), h("th", { text: "Energy (keV)" }), h("th", { text: "Weight" }), h("th", { text: "Share", style: "text-align:right" }), h("th", { text: "Scatter", style: "text-align:center" }), h("th", {}))));
-  const body = h("tbody"); const rows = [];
-  S.cfg.beam.forEach((b, i) => {
-    const share = h("td", { class: "sh", text: b.use && b.weight > 0 && tot > 0 ? (b.weight / tot * 100).toFixed(b.weight / tot < .1 ? 1 : 0) + " %" : "–" });
-    rows.push({ b, share });
-    body.append(h("tr", {},
-      h("td", { class: "cb" }, h("input", { type: "checkbox", checked: b.use, "aria-label": `Use energy ${i + 1}`, onchange: e => { b.use = e.target.checked; beamChanged(true); } })),
-      h("td", {}, h("input", { type: "number", step: "any", min: "0.05", max: "500", value: b.energy, "aria-label": `Energy ${i + 1} in keV`, oninput: e => { const v = parseFloat(e.target.value); if (isFinite(v)) { b.energy = v; beamChanged(false); } } })),
-      h("td", {}, h("input", { type: "number", step: "any", min: "0", value: b.weight, "aria-label": `Weight ${i + 1}`, oninput: e => { const v = parseFloat(e.target.value); if (isFinite(v) && v >= 0) { b.weight = v; beamChanged(false); } } })),
-      share,
-      h("td", { class: "cb" }, h("input", { type: "checkbox", checked: b.scatter, "aria-label": `Rayleigh and Compton scatter for energy ${i + 1}`, onchange: e => { b.scatter = e.target.checked; beamChanged(true); } })),
-      h("td", {}, h("button", { "aria-label": `Remove energy ${i + 1}`, title: "Remove", onclick: () => { S.cfg.beam.splice(i, 1); beamChanged(true); } }, "×"))));
-  });
-  t.append(body); t._rows = rows;
-  if (!S.cfg.beam.length) body.append(h("tr", {}, h("td", { colspan: 6, class: "hint", text: "No energies. Add one." })));
-}
-function updateShares() {
-  const t = $("#beam"), tot = usedBeam().reduce((a, b) => a + b.weight, 0);
-  (t._rows || []).forEach(({ b, share }) => { share.textContent = b.use && b.weight > 0 && tot > 0 ? (b.weight / tot * 100).toFixed(b.weight / tot < .1 ? 1 : 0) + " %" : "–"; });
-}
-let beamTimer = null;
-function beamChanged(rerender) {
-  syncE0(); const err = $("#beam-err");
-  if (!usedBeam().length) { err.textContent = "Enable at least one energy with a weight above zero."; err.hidden = false; } else err.hidden = true;
-  if (rerender) { renderBeam(); renderParams(); } else updateShares();
-  markStale(); plot.draw(); clearTimeout(beamTimer); beamTimer = setTimeout(refreshGroups, 250);
-}
-$("#beam-add").onclick = () => { const last = S.cfg.beam[S.cfg.beam.length - 1]; S.cfg.beam.push({ energy: last ? last.energy : 20, weight: 1, use: true, scatter: false }); beamChanged(true); };
-$("#beam-load").onclick = () => $("#beam-file").click();
+const fmtW = w => String(Number(w.toPrecision(5)));
+const beamToText = rows => rows.map(b => `${Number(b.energy.toPrecision(6))} ${fmtW(b.weight)}${b.scatter ? " scatter" : ""}`).join("\n");
+/* "17.44 1.0 scatter" per line; # starts a comment. Returns {rows} or {error}. */
 function parseBeamText(txt) {
   const rows = [];
-  for (let line of txt.split(/\r?\n/)) {
-    line = line.replace(/[#;].*$/, "").trim(); if (!line) continue;
-    const tk = line.split(/[\s,;]+/).filter(Boolean), E = parseFloat(tk[0]);
-    if (!isFinite(E)) continue;                      // header line
-    const w = tk.length > 1 ? parseFloat(tk[1]) : 1;
-    if (!isFinite(w)) continue;
-    rows.push({ energy: E, weight: w, use: true, scatter: tk.length > 2 && /^(1|true|yes|y|x|on)$/i.test(tk[2]) });
+  const lines = txt.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].replace(/[#;].*$/, "").trim(); if (!line) continue;
+    const tk = line.split(/[\s,;]+/).filter(Boolean), E = Number(tk[0]), w = tk.length > 1 ? Number(tk[1]) : 1;
+    if (!isFinite(E)) { if (!rows.length && i < 3) continue; return { error: `Line ${i + 1}: "${tk[0]}" is not an energy in keV.` }; }   // a header line is allowed at the top
+    if (E < 0.05 || E > 500) return { error: `Line ${i + 1}: energy ${E} keV is outside 0.05 to 500 keV.` };
+    if (!isFinite(w) || w < 0) return { error: `Line ${i + 1}: the weight must be a number of at least 0.` };
+    const flag = tk[2] ? tk[2].toLowerCase() : "";
+    if (flag && !/^(scatter|s|1|true|yes|y|on)$/.test(flag)) return { error: `Line ${i + 1}: write "scatter" as the third column, or leave it out.` };
+    rows.push({ energy: E, weight: w, use: true, scatter: !!flag });
   }
-  return rows;
+  if (rows.length > 500) return { error: "More than 500 energies." };
+  return { rows };
 }
+function renderBeam() { const t = $("#beam-text"); if (document.activeElement !== t) t.value = beamToText(S.cfg.beam); beamInfo(); }
+function beamInfo() {
+  const n = S.cfg.beam.length, sc = S.cfg.beam.filter(b => b.scatter).length, u = usedBeam();
+  $("#beam-info").textContent = u.length ? `${n} ${n === 1 ? "energy" : "energies"}, highest ${Math.max(...u.map(b => b.energy)).toPrecision(4).replace(/\.?0+$/, "")} keV` + (sc ? `, scatter peaks for ${sc}` : "") : "";
+}
+let beamTimer = null;
+function beamChanged() {
+  syncE0(); beamInfo(); renderParams(); markStale(); plot.draw(); clearTimeout(beamTimer); beamTimer = setTimeout(refreshGroups, 250);
+}
+function setBeamRows(rows, note) {
+  S.cfg.beam = rows; $("#beam-text").value = beamToText(rows); $("#beam-text").removeAttribute("aria-invalid"); $("#beam-err").hidden = true;
+  beamChanged(); if (note) setStatus(note);
+}
+$("#beam-text").addEventListener("input", e => {
+  const r = parseBeamText(e.target.value), err = $("#beam-err");
+  if (r.error || !r.rows.length) {
+    e.target.setAttribute("aria-invalid", "true"); err.textContent = r.error || "Enter at least one energy."; err.hidden = false; return;   // keep the last valid list in use
+  }
+  e.target.removeAttribute("aria-invalid"); err.hidden = true;
+  S.cfg.beam = r.rows; beamChanged();
+});
+$("#beam-load").onclick = () => $("#beam-file").click();
 $("#beam-file").onchange = async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
-  const rows = parseBeamText(await f.text()), err = $("#beam-err");
-  if (!rows.length) { err.textContent = `No energies found in ${f.name}. Use lines like "17.44 1.0" (keV, weight, optional scatter flag).`; err.hidden = false; return; }
-  if (rows.length > 500) { err.textContent = "That table has more than 500 energies."; err.hidden = false; return; }
-  if (rows.some(r => r.energy > 500 || r.energy < 0.05)) { err.textContent = "Energies must be in keV, between 0.05 and 500."; err.hidden = false; return; }
-  S.cfg.beam = rows; beamChanged(true); setStatus(`Loaded ${rows.length} energies from ${f.name}.`);
+  const r = parseBeamText(await f.text());
+  if (r.error || !r.rows.length) { const err = $("#beam-err"); err.textContent = `${f.name}: ${r.error || 'no energies found. Use lines like "17.44 1.0".'}`; err.hidden = false; return; }
+  setBeamRows(r.rows, `Loaded ${r.rows.length} energies from ${f.name}.`);
 };
 $("#beam-tube-toggle").onclick = e => { const t = $("#tube"); t.hidden = !t.hidden; e.currentTarget.setAttribute("aria-expanded", String(!t.hidden)); };
 $("#tube-fill").onclick = async () => {
   const err = $("#beam-err"); err.hidden = true;
   try {
     const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: +$("#tube-share").value / 100, emin: 1.5 });
-    S.cfg.beam = d.beam; beamChanged(true); setStatus(`Incident spectrum set to ${d.beam.length} energies.`);
+    setBeamRows(d.beam, `Incident spectrum set to ${d.beam.length} energies from the tube settings.`);
   } catch (e) { err.textContent = e.message; err.hidden = false; }
 };
 $("#angle").addEventListener("input", e => { const v = parseFloat(e.target.value); if (isFinite(v) && v > 0 && v < 180) { S.cfg.scatter_angle = v; markStale(); plot.draw(); } });

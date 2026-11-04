@@ -11,11 +11,11 @@ PyMca-style XRF spectrum fitting with a JaBS-style scriptable command interprete
 
 ## Incident spectrum
 
-Like PyMca's beam table, the excitation is a list of rows: **energy (keV)**, **weight** (relative photon intensity), a **use** flag and a **scatter** flag. One row is a monochromatic beam; several rows describe a tube or a multi-line source.
+Like PyMca's beam table, the excitation is a list with one energy per line: **energy (keV)**, **weight** (relative photon intensity) and an optional word **scatter**, for example `17.44 1.0 scatter`. One line is a monochromatic beam; several lines describe a tube or a multi-line source. In the browser it is a plain text box; delete a line to remove an energy.
 
 - The weights set the line intensities: L-line family ratios and the theory quantification use each cross section averaged over the beam, and a bare element symbol picks K lines when the highest enabled energy reaches the K edge.
-- A row with **scatter** adds two fitted peaks, Rayleigh at the beam energy and Compton at `E / (1 + E (1 - cos θ) / 511 keV)`. Set the scattering angle θ (default 90°). The Compton peak is widened by `compton_broad` (keV, added in quadrature to the detector width; it can be fitted).
-- **Load table** reads a text file with `energy [weight [scatter]]` per line (`#` comments, header lines skipped). **Tube spectrum** fills the table from a simplified model: Kramers continuum plus the anode K lines, with no window or filter absorption. PyMca uses the Ebel model for this; xrfit does not have the attenuation data it needs, so for a quantitative tube spectrum compute it elsewhere and load it.
+- A line with **scatter** adds two fitted peaks, Rayleigh at the beam energy and Compton at `E / (1 + E (1 - cos θ) / 511 keV)`. Set the scattering angle θ (default 90°). The Compton peak is widened by `compton_broad` (keV, added in quadrature to the detector width; it can be fitted).
+- **Load from file** reads a text file in the same format (`#` comments, a header line at the top is skipped). **Generate from X-ray tube** fills the list from a simplified model: Kramers continuum plus the anode K lines, with no window or filter absorption. PyMca uses the Ebel model for this; xrfit does not have the attenuation data it needs, so for a quantitative tube spectrum compute it elsewhere and load it.
 - Shell: `beam`, `beam add 17.44 1 scatter`, `beam load tube.txt`, `beam tube Rh 40 24 25`, `beam clear`; `set scatter_angle 90`; `free compton_broad`.
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
