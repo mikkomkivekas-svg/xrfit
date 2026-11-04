@@ -25,17 +25,18 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import core, demo, io_ketek, lines, xdata
+from . import core, demo, io_ketek, lines, tube, xdata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
 DATA_DIR = os.path.join(HERE, "data")
 MAX_BODY = 256 * 1024 * 1024
 CFG_FIELDS = {f.name for f in dataclasses.fields(core.Config)}
-NUM = {"zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "emin", "emax", "e0"}
+NUM = {"zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "emin", "emax", "e0",
+       "scatter_angle", "compton_broad"}
 INT = {"snip_width", "snip_smooth", "poly_order"}
 BOOL = {"sum_peaks", "free_ratios"}
-PARAMS = ["zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac"]
+PARAMS = ["zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "compton_broad"]
 BACKGROUNDS = ("snip", "poly", "snip+poly", "none")
 SOURCES = ("xraylib", "krause")
 
@@ -80,6 +81,37 @@ def clean(o):
     return o
 
 
+def beam_from_json(rows):
+    """Validate the incident-spectrum table sent by the UI."""
+    if rows in (None, ""):
+        return []
+    if not isinstance(rows, list) or len(rows) > 500:
+        raise ApiError("The beam table must be a list of at most 500 energies.")
+    out = []
+    for i, r in enumerate(rows, 1):
+        try:
+            E, w = float(r["energy"]), float(r.get("weight", 1.0))
+        except (KeyError, TypeError, ValueError):
+            raise ApiError(f"Beam row {i}: enter an energy and a weight as numbers.") from None
+        if not (math.isfinite(E) and math.isfinite(w)):
+            raise ApiError(f"Beam row {i}: energy and weight must be finite numbers.")
+        if not 0.05 <= E <= 500:
+            raise ApiError(f"Beam row {i}: the energy must be between 0.05 and 500 keV.")
+        if w < 0:
+            raise ApiError(f"Beam row {i}: the weight cannot be negative.")
+        out.append({"energy": E, "weight": w, "use": bool(r.get("use", True)), "scatter": bool(r.get("scatter", False))})
+    return out
+
+
+def exc_from_body(body):
+    """Excitation (float or tuple of (E, w)) for the line-table endpoints."""
+    rows = beam_from_json(body.get("beam"))
+    used = [(r["energy"], r["weight"]) for r in rows if r["use"] and r["weight"] > 0]
+    if rows and not used:
+        raise ApiError("Enable at least one beam energy with a weight above zero.")
+    return tuple(sorted(used)) if used else float(body.get("e0", 20.0))
+
+
 def cfg_from_json(d):
     cfg = core.Config()
     for k, v in (d or {}).items():
@@ -98,6 +130,8 @@ def cfg_from_json(d):
             setattr(cfg, k, int(v))
         elif k in BOOL:
             setattr(cfg, k, bool(v))
+        elif k == "beam":
+            cfg.beam = beam_from_json(v)
         elif k == "elements":
             cfg.elements = [str(x) for x in v]
         elif k == "free":
@@ -114,6 +148,13 @@ def cfg_from_json(d):
         raise ApiError("Gain must be greater than 0 keV/channel.")
     if cfg.e0 <= 0:
         raise ApiError("Excitation energy e0 must be greater than 0 keV.")
+    if not 0 < cfg.scatter_angle < 180:
+        raise ApiError("The scattering angle must be between 0 and 180 degrees.")
+    if cfg.beam:
+        try:
+            cfg.e0 = lines.top_energy(core.excitation(cfg))
+        except ValueError as e:
+            raise ApiError(str(e)) from e
     if cfg.emax <= cfg.emin:
         raise ApiError("The fit region must have an upper energy above the lower one.")
     return cfg
@@ -231,7 +272,7 @@ def api_example(body, query):
 
 
 def api_groups(body, query):
-    e0 = float(body.get("e0", 20.0))
+    e0 = exc_from_body(body)
     return {"entries": groups_info(body.get("tokens", []), bool(body.get("free_ratios")), e0,
                                    body.get("xs_source", "xraylib"))}
 
@@ -239,9 +280,20 @@ def api_groups(body, query):
 def api_lines(body, query):
     sym = str(body.get("symbol", "")).strip()
     try:
-        return lines.table(sym, float(body.get("e0", 20.0)), body.get("xs_source", "xraylib"))
+        return lines.table(sym, exc_from_body(body), body.get("xs_source", "xraylib"))
     except KeyError as e:
         raise ApiError(f"Unknown element '{sym}'. Use a symbol such as Fe or Pb.") from e
+
+
+def api_tube(body, query):
+    try:
+        rows = tube.tube_beam(str(body.get("anode", "Rh")), float(body.get("kv", 40)), int(body.get("bins", 24)),
+                              float(body.get("emin", 1.5)), float(body.get("line_share", 0.25)))
+    except (KeyError, ValueError, TypeError) as e:
+        raise ApiError(msg(e)) from e
+    for r in rows:
+        r["energy"] = round(r["energy"], 4)
+    return {"beam": rows}
 
 
 def api_fit(body, query):
@@ -288,7 +340,7 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
-POST_ROUTES = {"/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

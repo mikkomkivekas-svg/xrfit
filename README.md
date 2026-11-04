@@ -9,6 +9,17 @@ PyMca-style XRF spectrum fitting with a JaBS-style scriptable command interprete
     xrfit examples/demo.xrf    # run a script
     xrfit -c "load a.txt; add Fe Cu; fit"
 
+## Incident spectrum
+
+Like PyMca's beam table, the excitation is a list of rows: **energy (keV)**, **weight** (relative photon intensity), a **use** flag and a **scatter** flag. One row is a monochromatic beam; several rows describe a tube or a multi-line source.
+
+- The weights set the line intensities: L-line family ratios and the theory quantification use each cross section averaged over the beam, and a bare element symbol picks K lines when the highest enabled energy reaches the K edge.
+- A row with **scatter** adds two fitted peaks, Rayleigh at the beam energy and Compton at `E / (1 + E (1 - cos θ) / 511 keV)`. Set the scattering angle θ (default 90°). The Compton peak is widened by `compton_broad` (keV, added in quadrature to the detector width; it can be fitted).
+- **Load table** reads a text file with `energy [weight [scatter]]` per line (`#` comments, header lines skipped). **Tube spectrum** fills the table from a simplified model: Kramers continuum plus the anode K lines, with no window or filter absorption. PyMca uses the Ebel model for this; xrfit does not have the attenuation data it needs, so for a quantitative tube spectrum compute it elsewhere and load it.
+- Shell: `beam`, `beam add 17.44 1 scatter`, `beam load tube.txt`, `beam tube Rh 40 24 25`, `beam clear`; `set scatter_angle 90`; `free compton_broad`.
+
+Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
+
 ## Browser interface
 
 ```bash
@@ -57,7 +68,7 @@ Enable it once under **Settings → Pages → Deploy from a branch → `main` / 
 - `python tools/build_data.py <Table_1-2.pdf> <xraylib_tables_v2.3.pdf>` regenerates the JSON;
   `python tools/verify_against_pdf.py ...` re-checks every number with an independent extractor;
   `python -m unittest tests.test_xrfit` runs the tests.
-- Commands: `elements`, `lines Fe`, `xsec Fe-Ka1 8 10 20`, `set e0 <keV>`, `set xs_source xraylib|krause`.
+- Commands: `elements`, `lines Fe`, `xsec Fe-Ka1 8 10 20`, `set e0 <keV>`, `set xs_source xraylib|krause`, `beam ...` (incident spectrum, below).
 
 Known limits of the source data
 - xraylib 2.3 uses jump approximations for L lines; the PDF itself says values for L1-related lines are

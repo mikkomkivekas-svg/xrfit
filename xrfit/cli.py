@@ -10,10 +10,10 @@ import glob
 import shlex
 import sys
 
-from . import core, io_ketek, lines, xdata
+from . import core, io_ketek, lines, tube, xdata
 
 CFG_KEYS = ("zero gain noise fano tail_frac beta step_frac esc_frac emin emax snip_width "
-            "snip_smooth poly_order e0").split()
+            "snip_smooth poly_order e0 scatter_angle compton_broad").split()
 
 
 class Shell(cmd.Cmd):
@@ -57,11 +57,14 @@ class Shell(cmd.Cmd):
 
     def do_set(self, a):
         "set <name> <value>  - zero gain noise fano tail_frac beta step_frac esc_frac emin emax\n"\
-        "                      snip_width snip_smooth poly_order e0 (excitation keV) |\n"\
+        "                      snip_width snip_smooth poly_order e0 (single excitation keV; clears 'beam') |\n"\
+        "                      scatter_angle (deg) compton_broad (keV) |\n"\
         "                      xs_source xraylib|krause | background snip|poly|snip+poly|none\n"\
         "                      sum_peaks on|off | free_ratios on|off"
         k, v = shlex.split(a)[:2]
         if k in CFG_KEYS:
+            if k == "e0":
+                self.cfg.beam = []  # a single e0 means a monochromatic beam
             setattr(self.cfg, k, int(v) if k in ("snip_width", "snip_smooth", "poly_order") else float(v))
         elif k == "background":
             self.cfg.background = v
@@ -72,6 +75,41 @@ class Shell(cmd.Cmd):
             setattr(self.cfg, k, v.lower() in ("1", "on", "true", "yes"))
         else:
             raise KeyError(f"unknown setting '{k}'")
+
+    def do_beam(self, a):
+        "beam                      show the incident spectrum (energy, weight, scatter)\n"\
+        "beam add E [W] [scatter]  add an energy (keV), relative weight (default 1), optional scatter flag\n"\
+        "beam load <file>          read energy [weight [scatter]] lines from a text file (replaces the table)\n"\
+        "beam tube <anode> <kV> [steps] [line%]  simplified tube spectrum (Kramers + anode K lines)\n"\
+        "beam clear                monochromatic beam at e0 again\n"\
+        "A row with 'scatter' adds Rayleigh and Compton peaks (see 'set scatter_angle', 'set compton_broad')."
+        t = shlex.split(a)
+        try:
+            if not t:
+                pass
+            elif t[0] == "clear":
+                self.cfg.beam = []
+            elif t[0] == "add":
+                self.cfg.beam.append({"energy": float(t[1]), "weight": float(t[2]) if len(t) > 2 and t[2] != "scatter" else 1.0,
+                                      "use": True, "scatter": "scatter" in t[3:] or (len(t) > 2 and t[2] == "scatter")})
+            elif t[0] == "load":
+                self.cfg.beam = tube.parse_beam_text(open(t[1]).read())
+            elif t[0] == "tube":
+                self.cfg.beam = tube.tube_beam(t[1], float(t[2]), int(t[3]) if len(t) > 3 else 24, 1.5,
+                                               float(t[4]) / 100 if len(t) > 4 else 0.25)
+            else:
+                return print("usage: beam [add E [W] [scatter] | load FILE | tube ANODE KV [steps] [line%] | clear]")
+            exc = core.excitation(self.cfg)
+        except (IndexError, ValueError, KeyError, OSError) as e:
+            return print(f"beam: {e.args[0] if e.args else e}")
+        if not self.cfg.beam:
+            return print(f"monochromatic beam at e0 = {self.cfg.e0:g} keV")
+        tot = sum(w for _, w in exc)
+        for b in self.cfg.beam:
+            sh = b["weight"] / tot * 100 if b.get("use", True) and b["weight"] > 0 else 0
+            print(f"  {b['energy']:9.4f} keV  weight {b['weight']:<10.4g} {sh:5.1f} %" + ("  scatter" if b.get("scatter") else "")
+                  + ("" if b.get("use", True) else "  (off)"))
+        print(f"  scattering angle {self.cfg.scatter_angle:g} deg")
 
     def do_free(self, a):
         "free <params...>  - nonlinear parameters to fit (e.g. free zero gain noise tail_frac); 'free none'"

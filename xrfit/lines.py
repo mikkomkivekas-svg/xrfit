@@ -31,6 +31,40 @@ def _norm(items):
     return [(n, E, w / tot) for n, E, w in items]
 
 
+def beam_energies(e0):
+    """Excitation as [(E_keV, weight)], weights normalised to 1. e0 is a float (monochromatic) or a
+    tuple of (E, weight) pairs (several energies, e.g. a discretised tube spectrum)."""
+    if isinstance(e0, (tuple, list)):
+        tot = sum(w for _, w in e0)
+        if tot <= 0:
+            raise ValueError("beam weights must sum to more than zero")
+        return [(float(E), w / tot) for E, w in e0 if w > 0]
+    return [(float(e0), 1.0)]
+
+
+def top_energy(e0):
+    return max(E for E, _ in beam_energies(e0))
+
+
+def beam_label(e0):
+    b = beam_energies(e0)
+    return f"{b[0][0]:g} keV" if len(b) == 1 else f"{len(b)}-energy beam up to {top_energy(e0):g} keV"
+
+
+def xs_beam(sym, line, e0, source="xraylib"):
+    """Production cross section (barn/atom) of a line averaged over the beam (weights = relative photon
+    intensity). For a single energy this is xdata.xs_line. Returns (value, note)."""
+    if not isinstance(e0, (tuple, list)):
+        return xdata.xs_line(sym, line, float(e0), source)
+    tot, notes = 0.0, set()
+    for E, w in beam_energies(e0):
+        v, note = xdata.xs_line(sym, line, E, source)
+        tot += w * v
+        if note and note != "below edge":
+            notes.add(note)
+    return tot, "; ".join(sorted(notes))
+
+
 @functools.lru_cache(maxsize=1024)
 def family_lines(sym, fam, e0=20.0, source="xraylib"):
     """[(line, E_keV, weight)] normalised to 1 for family K / L / M."""
@@ -58,14 +92,14 @@ def family_lines(sym, fam, e0=20.0, source="xraylib"):
             if E is None:
                 continue
             try:
-                xs, _ = xdata.xs_line(sym, n, e0, source)
+                xs, _ = xs_beam(sym, n, e0, source)
             except KeyError as e:
                 raise KeyError(f"{sym}-L: the xraylib tables have no cross section for {n} ({e}); "
                                f"use single lines, e.g. {sym}-La1") from None
             if xs > 0:
                 items.append((n, E, xs))
         if not items:
-            raise KeyError(f"{sym}-L: no L cross sections at e0={e0} keV (below the L edges, or element "
+            raise KeyError(f"{sym}-L: no L cross sections at {beam_label(e0)} (below the L edges, or element "
                            f"outside the xraylib tables Z=5-90); use single lines, e.g. {sym}-La1")
     return tuple(_norm(items))
 
@@ -75,7 +109,7 @@ def default_family(sym, e0=20.0):
     L lines in Table 1-2, otherwise K."""
     x = xdata.xl().get(sym)
     k_edge = x["edge_keV"].get("K") if x else None
-    if k_edge and k_edge <= e0 * (1 + 1e-9):
+    if k_edge and k_edge <= top_energy(e0) * (1 + 1e-9):
         return "K"
     if xdata.t12().get(sym, {}).get("La1") is not None:
         return "L"
@@ -131,7 +165,7 @@ def group_sigma(name, e0=20.0, source="xraylib"):
     sym, members = group_members(name, e0, source)
     notes, tot = set(), 0.0
     for n in members:
-        s, note = xdata.xs_line(sym, n, e0, source)
+        s, note = xs_beam(sym, n, e0, source)
         tot += s
         if note: notes.add(note)
     return tot, "; ".join(sorted(notes))
@@ -152,20 +186,20 @@ def table(sym, e0=20.0, source="xraylib"):
         if E is None:
             continue
         try:
-            sig, note = xdata.xs_line(sym, n, e0, source)
+            sig, note = xs_beam(sym, n, e0, source)
         except KeyError:
             sig, note = None, ""
         rows.append({"line": n, "E_keV": E, "rate": xdata.line_rate(sym, n), "sigma_b": sig,
                      "note": note, "weight": fam_w.get(n)})
     edges = {sh: xdata.edge(sym, sh) for sh in ("K", "L1", "L2", "L3") if xdata.edge(sym, sh)}
     z = (xdata.t12().get(sym) or xdata.xl()[sym])["Z"]
-    return {"symbol": sym, "Z": z, "e0": e0, "source": source, "rows": rows, "edges": edges}
+    return {"symbol": sym, "Z": z, "e0": top_energy(e0), "beam": beam_label(e0), "source": source, "rows": rows, "edges": edges}
 
 
 def describe(sym, e0=20.0, source="xraylib"):
     """Text table of every line known for an element."""
     t = table(sym, e0, source)
-    rows = [f"{sym}: lines (keV) | rate = xraylib radiative rate | sigma = production cross section at e0={e0:g} keV [{source}]"]
+    rows = [f"{sym}: lines (keV) | rate = xraylib radiative rate | sigma = production cross section at {beam_label(e0)} [{source}]"]
     for r in t["rows"]:
         sg = f"{r['sigma_b']:10.4g} b" + (f"  ({r['note']})" if r["note"] else "") if r["sigma_b"] is not None else "         - "
         w = f"{r['weight']:.3f}" if r["weight"] is not None else "  -  "

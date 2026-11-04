@@ -8,6 +8,7 @@ polynomial background terms are solved linearly (variable projection, areas >= 0
 from __future__ import annotations
 
 import copy
+import math
 import json
 import re
 from dataclasses import dataclass, field, asdict
@@ -125,8 +126,9 @@ def peak(e, E, p, de):
 
 PARAM_BOUNDS = {  # relative to start for zero/gain, absolute otherwise
     "noise": (0.01, 0.6), "fano": (0.05, 0.3), "tail_frac": (0.0, 0.5),
-    "beta": (0.02, 0.6), "step_frac": (0.0, 0.2), "esc_frac": (0.0, 0.1),
+    "beta": (0.02, 0.6), "step_frac": (0.0, 0.2), "esc_frac": (0.0, 0.1), "compton_broad": (0.0, 1.5),
 }
+ELECTRON_MC2 = 510.999  # keV
 
 
 @dataclass
@@ -151,6 +153,12 @@ class Config:
     free_ratios: bool = False
     e0: float = 20.0            # excitation energy (keV): sets L-line weights and theory quantification
     xs_source: str = "xraylib"  # xraylib | krause  (which tabulated cross-section column to use)
+    # Incident spectrum, PyMca style: rows {"energy" keV, "weight" relative photons, "use", "scatter"}.
+    # Empty = monochromatic beam at e0. Weights set the line intensities (cross sections averaged over the
+    # beam); a row with "scatter" adds a Rayleigh peak at E and a Compton peak at E / (1 + E (1 - cos th) / mc2).
+    beam: list = field(default_factory=list)
+    scatter_angle: float = 90.0  # scattering angle th (degrees)
+    compton_broad: float = 0.20  # extra Compton peak width, keV FWHM (added in quadrature to the detector width)
 
     def to_json(self, path):
         json.dump(asdict(self), open(path, "w"), indent=2)
@@ -161,17 +169,42 @@ class Config:
 
     def params(self):
         return {k: getattr(self, k) for k in
-                ("zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac")}
+                ("zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "compton_broad")}
+
+
+def excitation(cfg):
+    """What the line tables see: a float (monochromatic at e0) or a tuple of (E, weight) pairs."""
+    if not cfg.beam:
+        return float(cfg.e0)
+    used = [(float(b["energy"]), float(b["weight"])) for b in cfg.beam if b.get("use", True) and float(b["weight"]) > 0]
+    if not used:
+        raise ValueError("no beam energy is enabled with a weight above zero")
+    return tuple(sorted(used))
+
+
+def scatter_energies(cfg):
+    """[(E_rayleigh, E_compton)] for every enabled beam row that has the scatter flag."""
+    out, c = [], 1 - math.cos(math.radians(cfg.scatter_angle))
+    for b in cfg.beam:
+        if b.get("use", True) and b.get("scatter") and float(b["weight"]) > 0:
+            E = float(b["energy"])
+            out.append((E, E / (1 + E * c / ELECTRON_MC2)))
+    return out
 
 
 def design(cfg, p, ch):
     e = p["zero"] + p["gain"] * ch
     de = p["gain"]
-    groups = build_groups(cfg.elements, cfg.free_ratios, cfg.e0, cfg.xs_source)
+    groups = build_groups(cfg.elements, cfg.free_ratios, excitation(cfg), cfg.xs_source)
     cols, names, nonneg = [], [], []
     for name, lines in groups:
         cols.append(sum(w * peak(e, E, p, de) for E, w in lines))
         names.append(name); nonneg.append(True)
+    pc = dict(p, noise=math.hypot(p["noise"], p.get("compton_broad", 0.0)))
+    for Er, Ec in scatter_energies(cfg):
+        for label, E, pp in (("Rayleigh", Er, p), ("Compton", Ec, pc)):
+            if e.min() - 1 < E < e.max() + 1:
+                cols.append(peak(e, E, pp, de)); names.append(f"{label} {Er:g}"); nonneg.append(True)
     if cfg.sum_peaks:
         main = [(n, max(l, key=lambda t: t[1])[0]) for n, l in groups]
         for i in range(len(main)):
@@ -309,17 +342,17 @@ def quantify_theory(result, e0=None, source=None, normalize=True):
     chromatic excitation at e0): n_i ~ (net counts / live time) / sigma_i(e0).
     Ignores detector efficiency, filters, matrix absorption and secondary excitation, so use it
     for relative amounts of similar-energy lines or thin samples. Returns {group: (value, note)}."""
-    e0 = result.cfg.e0 if e0 is None else e0
+    e0 = excitation(result.cfg) if e0 is None else e0
     source = result.cfg.xs_source if source is None else source
     out = {}
     for name, (area, _) in result.areas.items():
-        if name.startswith("sum:"):
+        if name.startswith(("sum:", "Rayleigh", "Compton")):
             continue
         sig, note = _lines.group_sigma(name, e0, source)
         if sig > 0:
             out[name] = [area / result.live_time / sig, note]
         else:
-            out[name] = [float("nan"), f"not excited at e0={e0:g} keV"]
+            out[name] = [float("nan"), f"not excited by the {_lines.beam_label(e0)}"]
     if normalize:
         tot = sum(v[0] for v in out.values() if v[0] == v[0])
         for v in out.values():

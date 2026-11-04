@@ -101,3 +101,28 @@ class TestFitAndQuant(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+def test_beam_scatter_and_polychromatic():
+    import numpy as np
+    from xrfit import core, demo, tube, webapp
+    spec = demo.synthetic_spectrum()
+    p = core.Config().params(); p.update(zero=0.0237, gain=0.0099951, noise=0.12, tail_frac=0.05)
+    e = p["zero"] + p["gain"] * np.arange(len(spec.counts))
+    Ec = 17.44 / (1 + 17.44 / core.ELECTRON_MC2)
+    rng = np.random.default_rng(3)
+    spec.counts = spec.counts + rng.poisson(3000 * core.peak(e, 17.44, p, p["gain"])
+                                            + 1500 * core.peak(e, Ec, dict(p, noise=np.hypot(.12, .2)), p["gain"]))
+    cfg = webapp.cfg_from_json({**demo.SUGGEST, "emax": 19, "beam": [{"energy": 17.44, "weight": 1, "scatter": True}]})
+    r = core.fit(spec, cfg)
+    assert abs(r.areas["Rayleigh 17.44"][0] - 3000) < 400 and abs(r.areas["Compton 17.44"][0] - 1500) < 400
+    # a weighted beam averages the L-line cross sections; a tube table sums to 1 and keeps the anode K lines
+    rows = tube.tube_beam("Rh", 40)
+    assert abs(sum(x["weight"] for x in rows) - 1) < 1e-9 and any(x["scatter"] for x in rows)
+    c2 = webapp.cfg_from_json({**demo.SUGGEST, "beam": rows})
+    assert c2.e0 > 39 and core.fit(spec, c2).areas["Fe-K"][0] > 30000
+    for bad in ([{"energy": -1, "weight": 1}], [{"energy": 10, "weight": 1, "use": False}]):
+        try:
+            webapp.cfg_from_json({"beam": bad}); assert False
+        except webapp.ApiError:
+            pass
