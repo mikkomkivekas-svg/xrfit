@@ -10,6 +10,7 @@ dependencies = ["numpy", "scipy"]
 plot = ["matplotlib"]
 [project.scripts]
 xrfit = "xrfit.cli:main"
+xrfit-web = "xrfit.webapp:main"
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
@@ -17,4 +18,4 @@ build-backend = "setuptools.build_meta"
 packages = ["xrfit"]
 
 [tool.setuptools.package-data]
-xrfit = ["data/*.json"]
+xrfit = ["data/*.json", "data/*.vspc", "web/*"]

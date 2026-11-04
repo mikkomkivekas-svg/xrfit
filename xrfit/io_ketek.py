@@ -157,12 +157,11 @@ def _label(k):
     return k
 
 
-def describe(meta, show_all=False, name=None, width=44):
-    """Grouped, human-readable metadata block."""
-    if not meta:
-        return "  (no metadata)"
+def describe_groups(meta):
+    """Metadata grouped for display: [{"title", "brief", "items": [(label, value), ...]}].
+    'brief' groups are the ones shown by default; the rest are behind 'show all'."""
     groups = {t: [] for t, _, _ in GROUPS}; other = []
-    for k, v in meta.items():
+    for k, v in (meta or {}).items():
         if k.startswith("_"):
             continue
         for t, rx, _ in GROUPS:
@@ -170,17 +169,26 @@ def describe(meta, show_all=False, name=None, width=44):
                 groups[t].append((k, v)); break
         else:
             other.append((k, v))
+    fmt = lambda v: f"{v:.6g}" if isinstance(v, float) else str(v)
+    out = [{"title": t, "brief": brief, "items": [(_label(k), fmt(v)) for k, v in groups[t]]}
+           for t, _, brief in GROUPS if groups[t]]
+    if other:
+        out.append({"title": "Other", "brief": False, "items": [(_label(k), fmt(v)) for k, v in other]})
+    return out
+
+
+def describe(meta, show_all=False, name=None, width=44):
+    """Grouped, human-readable metadata block (text)."""
+    if not meta:
+        return "  (no metadata)"
     out = [f"  file: {name or '?'}   (format: {meta.get('_format', 'n/a')})"]
-    ordered = [(t, groups[t], brief) for t, _, brief in GROUPS] + [("Other", other, False)]
     hidden = 0
-    for t, kv, brief in ordered:
-        if not kv:
-            continue
-        if brief or show_all:
-            out.append(f" {t}:")
-            out += [f"   {_label(k):{width}s} {v if not isinstance(v, float) else f'{v:.6g}'}" for k, v in kv]
+    for g in describe_groups(meta):
+        if g["brief"] or show_all:
+            out.append(f" {g['title']}:")
+            out += [f"   {k:{width}s} {v}" for k, v in g["items"]]
         else:
-            hidden += len(kv)
+            hidden += len(g["items"])
     if hidden:
         out.append(f" ({hidden} more fields; 'info all' to show)")
     return "\n".join(out)

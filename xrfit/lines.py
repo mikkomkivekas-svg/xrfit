@@ -137,29 +137,40 @@ def group_sigma(name, e0=20.0, source="xraylib"):
     return tot, "; ".join(sorted(notes))
 
 
-def describe(sym, e0=20.0, source="xraylib"):
-    """Text table of every line known for an element."""
+def table(sym, e0=20.0, source="xraylib"):
+    """Every line known for an element, structured (used by the web UI and describe())."""
     xdata.check_element(sym)
-    rows = [f"{sym}: lines (keV) | rate = xraylib radiative rate | sigma = production cross section at e0={e0:g} keV [{source}]"]
     fam_w = {}
     for fam in ("K", "L"):
         try:
             fam_w.update({n: w for n, _, w in family_lines(sym, fam, e0, source)})
         except KeyError:
             pass
+    rows = []
     for n in xdata.ALL_LINES:
         E = xdata.line_energy(sym, n)
         if E is None:
             continue
-        r = xdata.line_rate(sym, n)
         try:
-            s, note = xdata.xs_line(sym, n, e0, source)
-            sg = f"{s:10.4g} b" + (f"  ({note})" if note else "")
+            sig, note = xdata.xs_line(sym, n, e0, source)
         except KeyError:
-            sg = "         - "
-        w = f"{fam_w[n]:.3f}" if n in fam_w else "  -  "
-        rows.append(f"  {n:4s} {E:10.4f}   rate {('%.3f' % r) if r else '  -  '}   sigma {sg}   weight in group {w}")
-    for sh in ("K", "L1", "L2", "L3"):
-        e = xdata.edge(sym, sh)
-        if e: rows.append(f"  edge {sh}: {e:g} keV")
+            sig, note = None, ""
+        rows.append({"line": n, "E_keV": E, "rate": xdata.line_rate(sym, n), "sigma_b": sig,
+                     "note": note, "weight": fam_w.get(n)})
+    edges = {sh: xdata.edge(sym, sh) for sh in ("K", "L1", "L2", "L3") if xdata.edge(sym, sh)}
+    z = (xdata.t12().get(sym) or xdata.xl()[sym])["Z"]
+    return {"symbol": sym, "Z": z, "e0": e0, "source": source, "rows": rows, "edges": edges}
+
+
+def describe(sym, e0=20.0, source="xraylib"):
+    """Text table of every line known for an element."""
+    t = table(sym, e0, source)
+    rows = [f"{sym}: lines (keV) | rate = xraylib radiative rate | sigma = production cross section at e0={e0:g} keV [{source}]"]
+    for r in t["rows"]:
+        sg = f"{r['sigma_b']:10.4g} b" + (f"  ({r['note']})" if r["note"] else "") if r["sigma_b"] is not None else "         - "
+        w = f"{r['weight']:.3f}" if r["weight"] is not None else "  -  "
+        rt = f"{r['rate']:.3f}" if r["rate"] else "  -  "
+        rows.append(f"  {r['line']:4s} {r['E_keV']:10.4f}   rate {rt}   sigma {sg}   weight in group {w}")
+    for sh, e in t["edges"].items():
+        rows.append(f"  edge {sh}: {e:g} keV")
     return "\n".join(rows)

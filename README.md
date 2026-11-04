@@ -9,6 +9,17 @@ PyMca-style XRF spectrum fitting with a JaBS-style scriptable command interprete
     xrfit examples/demo.xrf    # run a script
     xrfit -c "load a.txt; add Fe Cu; fit"
 
+## Browser interface
+
+```bash
+pip install -e .
+xrfit-web            # opens http://127.0.0.1:8765 in your browser
+```
+
+Options: `--port N`, `--no-browser`, `--host`. Open or drop a spectrum (KETEK `.vspc`, CSV, text columns), add elements (`Fe`, `Pb-L`, `Cu-Ka1`), press **Fit spectrum** (Ctrl+Enter). The page shows the metadata (name, measurement time, slow filter), the plot with residuals and line markers (wheel zoom, drag pan, double-click reset, arrow keys step a cursor), net areas with atomic shares, a line-data lookup, batch fitting, CSV download and settings save/load. Light and dark themes are supported.
+
+The server is single-user and has no login. It only accepts requests addressed to localhost and requires a custom header on writes, so keep it bound to `127.0.0.1` unless you add your own protection.
+
 ## Implemented
 - Gaussian peaks with energy-dependent width: FWHM^2 = noise^2 + 2.3548^2 * eps * Fano * E
 - Hypermet low-energy tail, step function, Si-escape peaks, optional sum (pile-up) peaks
