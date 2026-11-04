@@ -158,6 +158,7 @@ class Config:
     # beam); a row with "scatter" adds a Rayleigh peak at E and a Compton peak at E / (1 + E (1 - cos th) / mc2).
     beam: list = field(default_factory=list)
     matrix: dict = field(default_factory=dict)   # sample layers and geometry, see matrix.py (not used by fit())
+    beam_filters: list = field(default_factory=list)  # filters between source and sample: {"material","density","thickness_um"}
     scatter_angle: float = 90.0  # scattering angle th (degrees)
     compton_broad: float = 0.20  # extra Compton peak width, keV FWHM (added in quadrature to the detector width)
 
@@ -173,11 +174,24 @@ class Config:
                 ("zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "compton_broad")}
 
 
+def _beam_rows(cfg):
+    """Enabled beam rows [(energy, weight after the beam filters, scatter flag)]."""
+    rows = [(float(b["energy"]), float(b["weight"]), bool(b.get("scatter"))) for b in cfg.beam
+            if b.get("use", True) and float(b["weight"]) > 0]
+    if rows and cfg.beam_filters:
+        from . import matrix as _mx
+        t = _mx.filter_transmission(cfg.beam_filters, [r[0] for r in rows])
+        rows = [(E, w * float(ti), sc) for (E, w, sc), ti in zip(rows, t)]
+        if max(float(ti) for ti in t) < 1e-12:
+            raise ValueError("the beam filters block the whole incident beam")
+    return rows
+
+
 def excitation(cfg):
-    """What the line tables see: a float (monochromatic at e0) or a tuple of (E, weight) pairs."""
+    """What the line tables see: a float (monochromatic at e0) or a tuple of (E, weight) pairs, after the beam filters."""
     if not cfg.beam:
         return float(cfg.e0)
-    used = [(float(b["energy"]), float(b["weight"])) for b in cfg.beam if b.get("use", True) and float(b["weight"]) > 0]
+    used = [(E, w) for E, w, _ in _beam_rows(cfg)]
     if not used:
         raise ValueError("no beam energy is enabled with a weight above zero")
     return tuple(sorted(used))
@@ -186,10 +200,9 @@ def excitation(cfg):
 def scatter_energies(cfg):
     """[(E_rayleigh, E_compton, weight)] for every enabled beam row that has the scatter flag; weights sum to 1."""
     out, c = [], 1 - math.cos(math.radians(cfg.scatter_angle))
-    for b in cfg.beam:
-        if b.get("use", True) and b.get("scatter") and float(b["weight"]) > 0:
-            E = float(b["energy"])
-            out.append((E, E / (1 + E * c / ELECTRON_MC2), float(b["weight"])))
+    for E, w, sc in _beam_rows(cfg):
+        if sc and w > 0:
+            out.append((E, E / (1 + E * c / ELECTRON_MC2), w))
     tot = sum(w for *_, w in out)
     return [(Er, Ec, w / tot) for Er, Ec, w in out]
 

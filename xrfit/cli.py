@@ -111,6 +111,39 @@ class Shell(cmd.Cmd):
                   + ("" if b.get("use", True) else "  (off)"))
         print(f"  scattering angle {self.cfg.scatter_angle:g} deg")
 
+    def do_filter(self, a):
+        "filter                          list the beam and detector filters\n"\
+        "filter beam|detector add MATERIAL THICKNESS_UM [DENSITY]   element, formula or preset (Kapton, Mylar...)\n"\
+        "filter beam|detector clear      remove all filters of that kind\n"\
+        "filter T E [E ...]              transmission of the beam filters at these energies (keV)"
+        t = shlex.split(a)
+        mx = self.cfg.matrix
+        det = mx.setdefault("detector", {"si_mm": 0.5, "be_um": 0, "air_mm": 0}) if mx else None
+        try:
+            if t[:1] == ["T"]:
+                es = [float(x) for x in t[1:]]
+                tr = matrix.filter_transmission(self.cfg.beam_filters, es)
+                return print("  ".join(f"{e:g} keV: {x * 100:.3g} %" for e, x in zip(es, tr)))
+            if len(t) >= 2 and t[0] in ("beam", "detector"):
+                if t[0] == "detector" and det is None:
+                    return print("filter: describe the matrix first (matrix layers 1)")
+                lst = self.cfg.beam_filters if t[0] == "beam" else det.setdefault("filters", [])
+                if t[1] == "clear":
+                    lst.clear()
+                elif t[1] == "add" and len(t) >= 4:
+                    f = {"material": t[2], "thickness_um": float(t[3]), "density": float(t[4]) if len(t) > 4 else ""}
+                    matrix.parse_filters(lst + [f])
+                    lst.append(f)
+                else:
+                    return print("usage: filter beam|detector add MATERIAL THICKNESS_UM [DENSITY] | clear")
+            elif t:
+                return print("usage: filter [beam|detector add ... | clear | T E...]")
+        except (matrix.MatrixError, ValueError) as e:
+            return print(f"filter: {e.args[0] if e.args else e}")
+        for kind, lst in (("beam", self.cfg.beam_filters), ("detector", (det or {}).get("filters", []))):
+            print(f"{kind} filters: " + ("none" if not lst else "; ".join(
+                f"{f['material']} {f['thickness_um']} um" + (f" @ {f['density']} g/cm3" if f.get("density") not in ("", None) else "") for f in lst)))
+
     def do_matrix(self, a):
         "matrix                          show the sample layers\n"\
         "matrix layers <n>               number of layers (layer 1 is the top, the last is infinitely thick)\n"\

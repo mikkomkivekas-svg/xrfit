@@ -156,6 +156,57 @@ def parse_composition(text):
     return [{"element": s, "mode": m, "value": v} for s, (m, v) in out.items()]
 
 
+# ------------------------------------------------------------------ filters
+FILTER_PRESETS = {      # name -> (composition text, density g/cm3)
+    "Al": ("Al", 2.70), "Ti": ("Ti", 4.51), "Cu": ("Cu", 8.96), "Zr": ("Zr", 6.51), "Mo": ("Mo", 10.22),
+    "Rh": ("Rh", 12.41), "Ag": ("Ag", 10.49), "Be": ("Be", 1.848),
+    "Kapton": ("C22H10N2O5", 1.42), "Mylar": ("C10H8O4", 1.38), "Polypropylene": ("C3H6", 0.90),
+}
+
+
+def parse_filters(filters):
+    """[{"material", "density" (blank = element default), "thickness_um"}] -> [(composition, density, thickness cm, label)]."""
+    out = []
+    for i, f in enumerate(filters or [], 1):
+        label = f"Filter {i}"
+        mat = str(f.get("material", "")).strip()
+        if mat in FILTER_PRESETS and not str(f.get("density", "")).strip():
+            mat_text, rho = FILTER_PRESETS[mat]
+        else:
+            mat_text, rho = mat, f.get("density")
+        if not mat_text:
+            raise MatrixError(f"{label}: enter a material, for example Al or Kapton")
+        try:
+            ent = parse_composition(mat_text)
+        except MatrixError as e:
+            raise MatrixError(f"{label}: {e}") from None
+        if any(e["mode"] != "fixed" for e in ent):
+            raise MatrixError(f"{label}: give the material as an element or formula (no ? or balance)")
+        tot = sum(e["value"] for e in ent)
+        comp = {e["element"]: e["value"] / tot for e in ent}
+        if rho in (None, ""):
+            if len(comp) != 1:
+                raise MatrixError(f"{label}: enter the density (g/cm³) of {mat_text}")
+            rho = attenuation.density(next(iter(comp)))
+        try:
+            rho = float(rho); t = float(f.get("thickness_um"))
+        except (TypeError, ValueError):
+            raise MatrixError(f"{label}: enter the density and the thickness in µm as numbers") from None
+        if not rho > 0 or t < 0:
+            raise MatrixError(f"{label}: the density must be above 0 and the thickness cannot be negative")
+        out.append((comp, rho, t * 1e-4, f"{mat} {f.get('thickness_um')} µm"))
+    return out
+
+
+def filter_transmission(filters, energy_keV):
+    """Fraction of photons passing all filters at each energy (keV)."""
+    e = np.atleast_1d(np.asarray(energy_keV, float))
+    t = np.ones_like(e)
+    for comp, rho, cm, _ in parse_filters(filters):
+        t *= np.exp(-sum(w * attenuation.mu(s, e) for s, w in comp.items()) * rho * cm)
+    return t
+
+
 # ------------------------------------------------------------------- model
 def _layers(mx):
     ls = mx.get("layers") or []
@@ -207,6 +258,8 @@ class Model:
         det = mx.get("detector") or {}
         self.si_cm, self.be_cm, self.air_cm = (float(det.get("si_mm", 0.5)) / 10, float(det.get("be_um", 0)) * 1e-4,
                                                float(det.get("air_mm", 0)) / 10)
+        self.det_filters = det.get("filters") or []
+        parse_filters(self.det_filters)       # fail early with a readable message
         self.beam = lines.beam_energies(exc)
         self.E0 = np.array([E for E, _ in self.beam]); self.wb = np.array([w for _, w in self.beam])
         self.elems = sorted({e["element"] for L in self.layers for e in L["entries"]})
@@ -260,7 +313,7 @@ class Model:
                 e *= math.exp(-mu_air * AIR_RHO * self.air_cm)
             if self.si_cm > 0:
                 e *= 1 - math.exp(-attenuation.mu("Si", El) * SI_RHO * self.si_cm)
-            self.eff[round(El, 9)] = e
+            self.eff[round(El, 9)] = e * float(filter_transmission(self.det_filters, El)[0])
 
     def _mu_layer(self, frac, E):
         i = [self.idx[round(x, 9)] for x in np.atleast_1d(E)]

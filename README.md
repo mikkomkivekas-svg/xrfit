@@ -20,6 +20,18 @@ Like PyMca's beam table, the excitation is a list with one energy per line: **en
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
 
+## Filters
+
+Both lists use the same tabulated attenuation data as the matrix model (Elam, Ravel and Sieber, via XrayDB) and
+take an element (`Al`), a formula (`SiO2`, density required) or a preset (Kapton, Mylar, Polypropylene).
+
+- **Beam filters** sit between the source and the sample. Their transmission multiplies the weight of every
+  incident energy, so the beam hardens, the line intensities, Rayleigh and Compton peaks follow, and the matrix
+  calculation sees the filtered beam. Use them to describe the tube window and any primary filter on top of the
+  simplified tube spectrum. In the shell: `filter beam add Al 100`, `filter T 5 10 20`.
+- **Detector filters** sit between the sample and the detector. They multiply the detection efficiency in the
+  matrix model (`filter detector add Be 25`), next to the Si thickness, Be window and air path.
+
 ## Sample matrix
 
 Describe the sample as 1 to 6 layers (browser: choose the number of layers first, then fill in each; shell: `matrix`). Layer 1 faces the beam and the detector, and **the last layer is infinitely thick**. Each layer has a composition, a density and (except the last) a thickness.

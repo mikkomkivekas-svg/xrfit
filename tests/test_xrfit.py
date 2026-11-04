@@ -238,3 +238,44 @@ def test_matrix_secondary_excitation_and_layer_ratios():
     res1 = NS(cfg=cfg, live_time=100.0, areas={"Cu-K": (1e5, 300.0), "Zn-K": (5e4, 220.0)})
     with pytest.raises(M.MatrixError, match="Fit α, β and γ"):
         M.solve(mx, res1)
+
+
+def test_beam_filters_harden_the_beam():
+    import math
+    import pytest
+    from xrfit import core, matrix as M
+    beam = [{"energy": 10.0, "weight": 1.0}, {"energy": 20.0, "weight": 1.0}]
+    cfg = core.Config(beam=beam, beam_filters=[{"material": "Al", "density": "", "thickness_um": 200}])
+    (e1, w1), (e2, w2) = core.excitation(cfg)
+    # Beer-Lambert with the tabulated Al attenuation and density
+    from xrfit import attenuation as a
+    for e, w in ((e1, w1), (e2, w2)):
+        assert abs(w - math.exp(-a.mu("Al", e) * a.density("Al") * 200e-4)) < 1e-9
+    assert w2 / w1 > 3                                   # the high-energy end is favoured
+    # filters stack
+    cfg.beam_filters.append({"material": "Kapton", "density": "", "thickness_um": 50})
+    (_, w1b), _ = core.excitation(cfg)
+    assert w1b < w1
+    # a compound needs a density, an unknown symbol is named, a wall of metal is reported
+    with pytest.raises(M.MatrixError, match="density"):
+        M.parse_filters([{"material": "SiO2", "density": "", "thickness_um": 5}])
+    with pytest.raises(M.MatrixError, match="Xx"):
+        M.parse_filters([{"material": "Xx", "density": "", "thickness_um": 5}])
+    cfg.beam_filters = [{"material": "Pb", "density": "", "thickness_um": 5000}]
+    with pytest.raises(ValueError):
+        core.excitation(cfg)
+
+
+def test_detector_filters_reduce_low_energy_efficiency():
+    import math
+    from xrfit import core, matrix as M
+    exc = core.excitation(core.Config(beam=[{"energy": 17.44, "weight": 1.0}]))
+    geo = {"alpha_in": 45, "alpha_out": 45}
+    lay = [{"composition": "Fe 50\nCu 50", "density": 8.4}]
+    base = M.Model({"layers": lay, **geo}, ["Fe-K", "Cu-K"], exc, "xraylib")
+    filt = M.Model({"layers": lay, "detector": {"filters": [{"material": "Al", "density": "", "thickness_um": 50}]}, **geo},
+                   ["Fe-K", "Cu-K"], exc, "xraylib")
+    fr = [{"Fe": 0.5, "Cu": 0.5}]
+    p0, p1 = base.predict(fr, [math.inf]), filt.predict(fr, [math.inf])
+    r_fe, r_cu = p1["Fe-K"] / p0["Fe-K"], p1["Cu-K"] / p0["Cu-K"]
+    assert r_fe < r_cu < 1                              # soft Fe K is cut harder than Cu K

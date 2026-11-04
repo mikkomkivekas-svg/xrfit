@@ -103,13 +103,30 @@ def beam_from_json(rows):
     return out
 
 
+def filters_from_json(v):
+    if v in (None, ""):
+        return []
+    if not isinstance(v, list) or len(v) > 20:
+        raise ApiError("The filters must be a list of at most 20 entries.")
+    flt = [{"material": str(f.get("material", "")), "density": f.get("density", ""), "thickness_um": f.get("thickness_um", "")}
+           for f in v if isinstance(f, dict)]
+    try:
+        matrix.parse_filters(flt)
+    except matrix.MatrixError as e:
+        raise ApiError(str(e)) from e
+    return flt
+
+
 def exc_from_body(body):
     """Excitation (float or tuple of (E, w)) for the line-table endpoints."""
     rows = beam_from_json(body.get("beam"))
-    used = [(r["energy"], r["weight"]) for r in rows if r["use"] and r["weight"] > 0]
-    if rows and not used:
-        raise ApiError("Enable at least one beam energy with a weight above zero.")
-    return tuple(sorted(used)) if used else float(body.get("e0", 20.0))
+    cfg = core.Config(beam=rows, beam_filters=filters_from_json(body.get("beam_filters")))
+    if rows:
+        try:
+            return core.excitation(cfg)
+        except ValueError as e:
+            raise ApiError(str(e)) from e
+    return float(body.get("e0", 20.0))
 
 
 def cfg_from_json(d):
@@ -134,6 +151,8 @@ def cfg_from_json(d):
             cfg.beam = beam_from_json(v)
         elif k == "matrix":
             cfg.matrix = v if isinstance(v, dict) else {}
+        elif k == "beam_filters":
+            cfg.beam_filters = filters_from_json(v)
         elif k == "elements":
             cfg.elements = [str(x) for x in v]
         elif k == "free":
@@ -287,6 +306,17 @@ def api_lines(body, query):
         raise ApiError(f"Unknown element '{sym}'. Use a symbol such as Fe or Pb.") from e
 
 
+def api_filters(body, query):
+    """Echo and transmission of a filter list at some energies (keV): {"filters": [...], "energies": [...]}."""
+    try:
+        flt = matrix.parse_filters(body.get("filters"))
+        en = [float(e) for e in (body.get("energies") or [5, 10, 20, 30])][:12]
+        t = matrix.filter_transmission(body.get("filters"), en)
+    except (matrix.MatrixError, ValueError, TypeError) as e:
+        return {"error": str(e)}
+    return {"labels": [f[3] for f in flt], "energies": en, "transmission": [float(x) for x in t]}
+
+
 def api_tube(body, query):
     try:
         rows = tube.tube_beam(str(body.get("anode", "Rh")), float(body.get("kv", 40)), int(body.get("bins", 24)),
@@ -363,7 +393,7 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
-POST_ROUTES = {"/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 
