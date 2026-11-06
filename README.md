@@ -20,6 +20,20 @@ Like PyMca's beam table, the excitation is a list with one energy per line: **en
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
 
+## Calibrating the tube on a standard
+
+The simplified tube model has one free number that matters for elements just above the anode lines: the share of
+photons in the anode K lines. Tick **Fit the anode line share** with every amount of a standard given (no `?`), and
+the calculation fits K and the share together; **Use this share** regenerates the incident spectrum with it. For the
+SRM 1157 example it gives about 3 %, against 25 % as a first guess. Mo K, which only the anode lines and the hard
+continuum can excite, moves from 0.8 to about 3.3 wt % (certified 4.9) when the share is set this way.
+
+## Reference values
+
+Each layer has an optional **Reference values** box (for example a certificate: `Fe balance`, `Cr 4.36`, ...). The
+result table then shows the reference, renormalised to the elements of the layer, and the difference to the fit. The
+SRM 1157 example carries the NBS certificate values.
+
 ## Instrument lines
 
 Lines that come from the instrument and not the sample (the tube anode's L lines, argon from the air path) can be fitted

@@ -280,6 +280,8 @@ table.data tr:hover td { background: var(--surface-2); }
           <div class="field"><label for="mx-k">Instrument factor K</label><input type="text" id="mx-k" inputmode="decimal" placeholder="e.g. 5e7"></div>
         </div>
         <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="mx-fitk"> Fit K from the data</label></div>
+        <div class="row"><label class="chk"><input type="checkbox" id="mx-fitshare"> Fit the anode line share</label></div>
+        <p class="hint" id="mx-fitshare-hint" style="margin:0 0 4px 24px">Calibrates the tube on a standard: give every amount (no <b>?</b>), and K and the share of the anode K lines in the incident spectrum are fitted. Needs a spectrum generated from the X-ray tube.</p>
         <div class="row"><label class="chk"><input type="checkbox" id="mx-sec"> Include secondary excitation</label></div>
         <div id="layers"></div>
         <div class="grid2" style="margin-top:10px">
@@ -412,7 +414,7 @@ const fmtK = n => n >= 1e4 ? (n / 1e3).toLocaleString("en-US", { maximumFraction
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode */ } } };
 
 /* ============================== state ============================== */
-const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false });
+const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false, reference: "" });
 const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, secondary: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0, filters: [] } });
 const DEFAULT_CFG = () => ({
   elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
@@ -919,7 +921,10 @@ function renderLayers() {
       h("div", { class: "grid2" },
         h("div", { class: "field" }, h("label", { text: "Density (g/cm³)" }), h("input", { type: "number", class: "dens", min: "0", step: "any", value: L.density, "aria-label": `Density of layer ${i + 1}`, oninput: e => { L.density = e.target.value; } })),
         h("div", { class: "field" }, h("label", { text: "Thickness (µm)" }), thick,
-          last ? null : h("label", { class: "chk", style: "margin-top:4px" }, h("input", { type: "checkbox", checked: L.fit_thickness, onchange: e => { L.fit_thickness = e.target.checked; } }), "Fit thickness")))));
+          last ? null : h("label", { class: "chk", style: "margin-top:4px" }, h("input", { type: "checkbox", checked: L.fit_thickness, onchange: e => { L.fit_thickness = e.target.checked; } }), "Fit thickness"))),
+      h("details", { class: "meta", open: !!L.reference, style: "margin-top:8px" }, h("summary", {}, h("span", { text: "Reference values (optional)" })),
+        h("div", { class: "field", style: "margin-top:6px" }, h("textarea", { rows: 4, spellcheck: "false", autocomplete: "off", placeholder: "Certified values to compare with, wt %:\nFe balance\nCr 4.36\nMo 4.86", "aria-label": `Reference composition of layer ${i + 1}`, oninput: e => { L.reference = e.target.value; } }, L.reference || ""),
+          h("div", { class: "hint", text: "Shown next to the result, renormalised to the elements of this layer. Elements outside the layer (C, Si…) are left out of the comparison." })))));
     echoLayer(i);
   });
 }
@@ -930,7 +935,7 @@ $("#n-layers").onchange = e => {
   renderLayers();
 };
 function syncMatrix() {
-  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
+  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-fitshare").checked = !!m.fit_line_share; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
   $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out;
   const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm;
   renderLayers(); renderDetFilters();
@@ -938,6 +943,7 @@ function syncMatrix() {
 $("#mx-k").addEventListener("input", e => { mx().k = e.target.value; });
 $("#mx-fitk").onchange = e => { mx().fit_k = e.target.checked; };
 $("#mx-sec").onchange = e => { mx().secondary = e.target.checked; };
+$("#mx-fitshare").onchange = e => { mx().fit_line_share = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
 for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
 $("#mx-run").onclick = async () => {
@@ -953,6 +959,15 @@ $("#mx-run").onclick = async () => {
   } catch (e) { err.textContent = e.message; err.hidden = false; }
   btn.disabled = false; btn.textContent = "Calculate composition";
 };
+async function useLineShare(frac) {
+  try {
+    const pct = +(frac * 100).toPrecision(3);
+    $("#tube-share").value = pct;
+    const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: pct / 100, emin: 1.5 });
+    mx().fit_line_share = false; syncMatrix();
+    setBeamRows(d.beam, `Incident spectrum regenerated with ${pct} % anode lines. Fit the spectrum again.`);
+  } catch (e) { setStatus(e.message, true); }
+}
 function renderMatrixPane() {
   const p = $("#pane-matrix"); p.replaceChildren(); const r = S.matrixResult;
   if (!r) { p.append(h("p", { class: "hint", style: "margin:0", text: "Describe the layers under Sample matrix, fit the spectrum, then press Calculate composition." })); return; }
@@ -960,14 +975,20 @@ function renderMatrixPane() {
   p.append(h("div", { class: "summary" },
     h("div", {}, h("span", { class: "lbl", text: "Instrument factor K" }), h("span", { class: "big num", text: fmtSig(r.k, 4) }), r.k_sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + fmtSig(r.k_sigma, 2) }) : null, h("span", { style: "color:var(--text-3);margin-left:6px", text: r.k_fitted ? "fitted" : "given" }),
       r.k_fitted ? h("button", { class: "btn quiet", style: "margin-left:6px", title: "Copy this K into the Sample matrix section and stop fitting it, for example to use a standard's K on a sample", onclick: () => { mx().k = String(+r.k.toPrecision(6)); mx().fit_k = false; syncMatrix(); setStatus("K from the standard is now fixed in the Sample matrix section."); } }, "Use this K from now on") : null),
+    r.line_share ? h("div", {}, h("span", { class: "lbl", text: "Anode line share" }), h("span", { class: "big num", text: (r.line_share.fitted * 100).toFixed(1) + " %" }),
+      r.line_share.sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + (r.line_share.sigma * 100).toFixed(1) }) : null,
+      h("button", { class: "btn quiet", style: "margin-left:6px", title: "Regenerate the incident spectrum from the tube panel with this share of anode K lines, and stop fitting it", onclick: () => useLineShare(r.line_share.fitted) }, "Use this share")) : null,
     h("div", {}, h("span", { class: "lbl", text: "Fitted quantities" }), h("span", { class: "num", text: `${r.n_free} from ${r.n_data} line groups` })),
     r.chi2red != null ? h("div", {}, h("span", { class: "lbl", text: "Reduced χ²" }), h("span", { class: "num", text: r.chi2red.toFixed(2) })) : null));
   for (const L of r.layers) {
     const t = L.infinite ? "infinitely thick" : `${L.fit_thickness && L.thickness_sigma != null ? pm(L.thickness_um, L.thickness_sigma, 2) : fmtSig(L.thickness_um, 4)} µm${L.fit_thickness ? " (fitted)" : ""}`;
     p.append(h("div", { class: "mxlayer" }, h("h3", {}, L.name, h("span", { text: `${t}, ${fmtSig(L.density, 4)} g/cm³` })),
-      h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Element" }), h("th", { class: "n", text: "Amount (wt %)" }), h("th", { class: "n", text: "± σ" }), h("th", { class: "n", text: "Atomic %" }), h("th", { text: "Basis" }))),
+      h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Element" }), h("th", { class: "n", text: "Amount (wt %)" }), h("th", { class: "n", text: "± σ" }), h("th", { class: "n", text: "Atomic %" }), L.reference ? h("th", { class: "n", text: "Reference (wt %)" }) : null, L.reference ? h("th", { class: "n", text: "Fit − reference" }) : null, h("th", { text: "Basis" }))),
         h("tbody", {}, L.composition.map(c => h("tr", {}, h("td", { text: c.element }), h("td", { class: "n", text: c.wt_pct.toFixed(c.wt_pct < 10 ? 3 : 2) }), h("td", { class: "n", text: c.sigma == null ? "–" : c.sigma.toFixed(3) }), h("td", { class: "n", text: c.at_pct == null ? "–" : c.at_pct.toFixed(c.at_pct < 10 ? 3 : 2) }),
+          L.reference ? h("td", { class: "n", text: c.reference.toFixed(c.reference < 10 ? 3 : 2) }) : null,
+          L.reference ? h("td", { class: "n", title: c.sigma ? `${(c.difference / c.sigma).toFixed(1)} σ` : "", text: (c.difference > 0 ? "+" : "") + c.difference.toFixed(Math.abs(c.difference) < 10 ? 3 : 2) }) : null,
           h("td", { text: c.mode === "fixed" ? "given" : c.mode === "unknown" ? "from the fitted lines" : "balance (rest to 100 %)" }))))),
+      L.reference ? h("p", { class: "note", style: "margin:4px 0 0", text: `The reference values are renormalised to the elements above; ${L.reference.outside_pct.toFixed(2)} % of the reference is in other elements.` }) : null,
       L.ratios.length ? h("p", { class: "note num", style: "margin:4px 0 0" }, L.ratios.map(q => `${q.element} / ${q.ref}: ${fmtSig(q.mass, 4)}${q.mass_sigma != null ? " ± " + fmtSig(q.mass_sigma, 2) : ""} by mass, ${fmtSig(q.atom, 4)}${q.atom_sigma != null ? " ± " + fmtSig(q.atom_sigma, 2) : ""} by atoms`).join("   ·   ")) : null));
   }
   p.append(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Line group" }), h("th", { class: "n", text: "Measured (cps)" }), h("th", { class: "n", text: "Calculated (cps)" }), h("th", { class: "n", text: "Calculated / measured" }))),

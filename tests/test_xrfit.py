@@ -306,3 +306,29 @@ def test_instrument_lines_stay_out_of_the_sample():
     assert "Fe-K" in q and "Rh-L" not in q
     r = M.solve({"layers": [{"composition": "Fe ?", "density": 7.9}], "fit_k": True, "alpha_in": 45, "alpha_out": 45}, res)
     assert all("Rh" not in n for n in r["notes"])
+
+
+def test_line_share_fit_and_reference_values():
+    import copy
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M, tube
+    def cfg_with(share):
+        return core.Config(beam=tube.tube_beam("Rh", 30.0, 12, 1.5, share), beam_filters=[{"material": "Be", "density": "", "thickness_um": 50}])
+    names = ["Cr-K", "Fe-K", "Mo-K", "W-L"]
+    geo = {"alpha_in": 90, "alpha_out": 43, "secondary": False}
+    truth = {"layers": [{"composition": "Fe 84\nCr 4.5\nMo 5\nW 6.5", "density": 7.9}], **geo}
+    m = M.Model(truth, names, core.excitation(cfg_with(0.03)), "xraylib")
+    f = m.predict([{"Fe": .84, "Cr": .045, "Mo": .05, "W": .065}], [float("inf")])
+    res = NS(cfg=cfg_with(0.20), live_time=100.0, areas={n: (2e6 * v * 100, 100.0) for n, v in f.items()})   # the "wrong" 20 % in the cfg
+    mx = {"layers": [{"composition": "Fe 84\nCr 4.5\nMo 5\nW 6.5", "density": 7.9, "reference": "Fe balance\nCr 4.5\nMo 5\nW 6.5\nC 1"}],
+          "fit_k": True, "fit_line_share": True, **geo}
+    r = M.solve(mx, res)
+    assert abs(r["line_share"]["fitted"] - 0.03) < 0.003 and abs(r["k"] / 2e6 - 1) < 0.05
+    ref = {c["element"]: c for c in r["layers"][0]["composition"]}
+    assert abs(ref["Mo"]["reference"] - 5.05) < 0.1 and abs(r["layers"][0]["reference"]["outside_pct"] - 1.0) < 1e-6
+    assert abs(ref["Mo"]["difference"]) < 0.2
+    # a continuum without anode lines cannot carry a share
+    import pytest
+    res.cfg = core.Config(beam=[{"energy": 10.0, "weight": 1.0}, {"energy": 20.0, "weight": 1.0}])
+    with pytest.raises(M.MatrixError, match="line share"):
+        M.solve(mx, res)

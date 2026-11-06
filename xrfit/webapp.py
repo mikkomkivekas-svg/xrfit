@@ -291,7 +291,7 @@ def api_example(body, query):
     if name in ("srm1157", "ketek"):
         spec = core.load_spectrum(os.path.join(DATA_DIR, "example_srm1157.vspc"))
         spec.name = "srm1157-tool-steel.vspc"
-        tube_cfg = {"anode": "Rh", "kv": 30.0, "bins": 24, "line_share": 0.25}   # the measurement used a Rh tube at 30 kV
+        tube_cfg = {"anode": "Rh", "kv": 30.0, "bins": 24, "line_share": 0.03}   # Rh tube at 30 kV. 3 % anode K lines: calibrated on the certified composition ("Fit the anode line share")
         beam = tube.tube_beam(tube_cfg["anode"], tube_cfg["kv"], tube_cfg["bins"], 1.5, tube_cfg["line_share"])
         for r in beam:
             r["energy"] = round(r["energy"], 4)
@@ -307,7 +307,9 @@ def api_example(body, query):
             # the detector is 47 deg from the sample normal, so 43 deg to the surface and a 133 deg scattering angle.
             "beam_filters": [{"material": "Be", "density": "", "thickness_um": "50"}], "scatter_angle": 133.0,
             "matrix": {"layers": [{"name": "SRM 1157 tool steel", "composition": "\n".join(f"{e} ?" for e in sample),
-                                   "density": "7.8", "thickness_um": "", "fit_thickness": False}],
+                                   "density": "7.8", "thickness_um": "", "fit_thickness": False,
+                                   # NBS certificate of analysis, SRM 1157 (AISI M2), average of four laboratories, wt %
+                                   "reference": "C 0.836\nMn 0.34\nP 0.011\nS 0.004\nSi 0.18\nCu 0.088\nNi 0.228\nCr 4.36\nV 1.82\nMo 4.86\nW 6.28\nCo 0.028\nFe balance"}],
                        "alpha_in": 90.0, "alpha_out": 43.0, "k": "", "fit_k": True, "secondary": True,
                        "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 0, "filters": []}}})
     raise ApiError("Unknown example.", 404)

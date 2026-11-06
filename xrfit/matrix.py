@@ -238,7 +238,7 @@ def _layers(mx):
             if t < 0:
                 raise MatrixError(f"{label}: the thickness cannot be negative")
         out.append({"name": (L.get("name") or "").strip() or label, "entries": ent, "rho": rho, "t_um": t,
-                    "fit_t": bool(L.get("fit_thickness")) and not last})
+                    "fit_t": bool(L.get("fit_thickness")) and not last, "reference": (L.get("reference") or "").strip()})
     return out
 
 
@@ -427,6 +427,25 @@ class Model:
         return out
 
 
+def _reference(text, elements):
+    """Certified or expected composition text -> ({element: wt % renormalised to `elements`}, wt % outside them)."""
+    ent = parse_composition(text)
+    if any(e["mode"] == "unknown" for e in ent):
+        raise MatrixError("the reference values cannot contain ? (use amounts, and at most one balance element)")
+    fx = {e["element"]: e["value"] for e in ent if e["mode"] == "fixed"}
+    for e in ent:
+        if e["mode"] == "balance":
+            fx[e["element"]] = max(1 - sum(fx.values()), 0.0)
+    tot = sum(fx.values())
+    if tot <= 0:
+        raise MatrixError("the reference values add up to zero")
+    fx = {k: v / tot for k, v in fx.items()}
+    inside = sum(fx.get(e, 0.0) for e in elements)
+    if inside <= 0:
+        raise MatrixError("none of the reference elements is in this layer")
+    return {e: 100 * fx.get(e, 0.0) / inside for e in elements}, 100 * (1 - inside)
+
+
 def _ratio_sets(L):
     """[(reference element, [other elements])] for a layer: ratios are reported when it has at least two elements,
     relative to the first element whose amount is unknown (or the first element)."""
@@ -465,6 +484,16 @@ def solve(mx, result, source=None):
             continue
         meas[name] = (a / result.live_time, s / result.live_time)
     model = Model(mx, list(meas), exc, source)
+    fit_ls = bool(mx.get("fit_line_share"))
+    model.wb0 = model.wb.copy()
+    sc_E = {round(E, 6) for E, _, sc in core._beam_rows(cfg) if sc}
+    sc_mask = np.array([round(float(E), 6) in sc_E for E in model.E0])
+    # share of anode lines among the photons leaving the tube (before the beam filters), the number the tube panel uses
+    raw = [(float(b["weight"]), bool(b.get("scatter"))) for b in cfg.beam if b.get("use", True) and float(b["weight"]) > 0]
+    share0 = sum(w for w, sc in raw if sc) / sum(w for w, _ in raw) if raw else 0.0
+    if fit_ls and not (sc_mask.any() and (~sc_mask).any()):
+        raise MatrixError("the anode line share can only be fitted when the incident spectrum has both scatter-flagged "
+                          "anode lines and a continuum (generate it with 'Generate from X-ray tube')")
     used = {n: meas[n] for n in model.groups}
     for n in meas:
         if n not in used:
@@ -520,6 +549,8 @@ def solve(mx, result, source=None):
             P += [("q", j, s) for s in un[1:]]
     if k_fit:
         P.append(("k",))
+    if fit_ls:
+        P.append(("s",))
     P += [("t", j) for j, L in enumerate(layers) if L["fit_t"]]
     if len(P) > len(used):
         raise MatrixError(f"{len(P)} quantities are to be determined but only {len(used)} line groups were fitted; "
@@ -558,6 +589,9 @@ def solve(mx, result, source=None):
                 t = math.exp(float(it[("t", j)])) if ("t", j) in it else L["t_um"]
                 mass.append(L["rho"] * t * 1e-4)
         K = math.exp(float(it[("k",)])) if ("k",) in it else k0
+        f_sc = math.exp(float(it[("s",)])) if ("s",) in it else 1.0
+        # anode lines relative to the continuum; the tube beam stays normalised to 1 before the filters, so K keeps its meaning
+        model.wb = model.wb0 * np.where(sc_mask, f_sc, 1.0) / ((1 - share0) + f_sc * share0)
         return fr, mass, K, pen
 
     names = list(used)
@@ -581,6 +615,8 @@ def solve(mx, result, source=None):
             lo[i], hi[i] = -14, 14
         elif p[0] == "k":
             lo[i], hi[i] = -60, 60; x[i] = math.log(k0) if k0 > 0 else 0.0
+        elif p[0] == "s":
+            lo[i], hi[i] = math.log(1e-3), math.log(1e3)
         elif p[0] == "t":
             lo[i], hi[i] = math.log(1e-4), math.log(1e5); x[i] = math.log(max(layers[p[1]]["t_um"], 1e-3))
     idx = {p: i for i, p in enumerate(P)}
@@ -646,6 +682,9 @@ def solve(mx, result, source=None):
                     o.append(a / b if b > 0 else float("nan"))
                     o.append((a / attenuation.atomic_weight(e)) / (b / attenuation.atomic_weight(ref)) if b > 0 else float("nan"))
         o.append(K)
+        if fit_ls:
+            f_sc = math.exp(float(xx[idx[("s",)]]))
+            o.append(f_sc * share0 / (f_sc * share0 + 1 - share0))
         return np.array(o)
     sig_out = None
     if len(P):
@@ -672,12 +711,22 @@ def solve(mx, result, source=None):
             comp.append({"element": e["element"], "mode": e["mode"], "wt_pct": float(o[k]),
                          "sigma": float(sig_out[k]) if sig_out is not None and e["mode"] != "fixed" else None})
             k += 1
+        reference = None
+        if L["reference"]:
+            try:
+                rv, outside = _reference(L["reference"], [c["element"] for c in comp])
+            except MatrixError as e:
+                raise MatrixError(f"{L['name']}, reference values: {e}") from None
+            for c in comp:
+                c["reference"] = rv[c["element"]]
+                c["difference"] = c["wt_pct"] - rv[c["element"]]
+            reference = {"outside_pct": outside}
         at = {c["element"]: c["wt_pct"] / attenuation.atomic_weight(c["element"]) for c in comp}
         tot = sum(at.values())
         for c in comp:
             c["at_pct"] = float(100 * at[c["element"]] / tot) if tot > 0 else None
         out_layers.append({"name": L["name"], "density": L["rho"], "composition": comp, "infinite": L["t_um"] is None,
-                           "fit_thickness": L["fit_t"], "ratios": []})
+                           "fit_thickness": L["fit_t"], "ratios": [], "reference": reference})
     for j, L in enumerate(layers):
         if L["t_um"] is not None:
             out_layers[j]["thickness_um"] = float(o[k])
@@ -698,6 +747,8 @@ def solve(mx, result, source=None):
     groups = [{"name": n, "measured": used[n][0], "sigma": used[n][1], "predicted": K * pred[n],
                "ratio": (K * pred[n] / used[n][0]) if used[n][0] > 0 else None} for n in names]
     return _clean({"groups": groups, "layers": out_layers, "k": float(K), "k_fitted": k_fit,
-                            "k_sigma": float(sig_out[-1]) if sig_out is not None and k_fit else None,
+                            "k_sigma": float(sig_out[-2 if fit_ls else -1]) if sig_out is not None and k_fit else None,
+                            "line_share": ({"start": share0, "fitted": float(o[-1]), "sigma": float(sig_out[-1]) if sig_out is not None else None}
+                                           if fit_ls else None),
                             "chi2red": chi2red, "n_free": len(P), "n_data": len(names), "notes": notes,
                             "alpha_in": mx.get("alpha_in", 45), "alpha_out": mx.get("alpha_out", 45)})
