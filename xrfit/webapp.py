@@ -285,10 +285,17 @@ def api_example(body, query):
     name = (query.get("name") or [""])[0]
     if name == "synthetic":
         return set_spectrum(demo.synthetic_spectrum(), demo.SUGGEST)
-    if name == "ketek":
-        spec = core.load_spectrum(os.path.join(DATA_DIR, "example_ketek.vspc"))
-        spec.name = "example-ketek.vspc"
-        return set_spectrum(spec, {"elements": [], "emin": 0.0, "emax": None})
+    if name in ("srm1157", "ketek"):
+        spec = core.load_spectrum(os.path.join(DATA_DIR, "example_srm1157.vspc"))
+        spec.name = "srm1157-tool-steel.vspc"
+        beam = tube.tube_beam("Rh", 30.0, 12, 1.5, 0.25)         # the measurement used a Rh tube at 30 kV
+        for r in beam:
+            r["energy"] = round(r["energy"], 4)
+        # The file says "uncalibrated" (5 eV per channel); the peaks put the real scale at about 4.872 eV per channel.
+        return set_spectrum(spec, {"elements": ["Cr", "Mn", "Fe", "Ni", "Cu", "Mo", "V", "Co", "W-L"], "zero": -0.018,
+                                   "gain": 0.004872, "emin": 1.8, "emax": 22.0, "beam": beam,
+                                   "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
+                                   "tail_frac": 0.02, "esc_frac": 0.005})
     raise ApiError("Unknown example.", 404)
 
 

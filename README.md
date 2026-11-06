@@ -82,7 +82,7 @@ Enable it once under **Settings → Pages → Deploy from a branch → `main` / 
   amounts = net rate / production cross section at `e0`; thin sample, no detector/matrix correction)
 
 ## Input formats
-- KETEK `.vspc` (JSON; `examples/sample_ketek.vspc` is a real export with the serial numbers redacted: `RawData`, `Calibration`, `Configuration.Parameters`, `MeasurementInfo`) - checked against a VICO-Scope export;
+- KETEK `.vspc` (JSON; `examples/srm1157_tool_steel.vspc` is a real export (SRM 1157 tool steel, Rh tube at 30 kV) with the serial numbers redacted: `RawData`, `Calibration`, `Configuration.Parameters`, `MeasurementInfo`) - checked against a VICO-Scope export;
   live time and keV/bin are taken from the file. Also the `Channel,RawData` CSV export, Amptek .mca, plain text.
 - `info` / `info all` show file name, serial, start/end time, real/live/dead time, count rates, slow-filter
   peaking and gap time, SDD temperature and calibration. `plot` prints the key items on the figure.
