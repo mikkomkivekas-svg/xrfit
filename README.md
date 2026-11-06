@@ -20,6 +20,13 @@ Like PyMca's beam table, the excitation is a list with one energy per line: **en
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
 
+## Instrument lines
+
+Lines that come from the instrument and not the sample (the tube anode's L lines, argon from the air path) can be fitted
+and marked **not sample** on their chip (`instrument` in the settings). They keep their net area, but they get no atomic
+share and the matrix calculation ignores them. The K lines of the anode work differently: scatter-flagged rows of the
+incident spectrum are fitted as one Rayleigh and one Compton peak.
+
 ## Filters
 
 Both lists use the same tabulated attenuation data as the matrix model (Elam, Ravel and Sieber, via XrayDB) and

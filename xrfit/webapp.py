@@ -155,6 +155,8 @@ def cfg_from_json(d):
             cfg.beam_filters = filters_from_json(v)
         elif k == "elements":
             cfg.elements = [str(x) for x in v]
+        elif k == "instrument":
+            cfg.instrument = [str(x) for x in v]
         elif k == "free":
             cfg.free = [x for x in v if x in PARAMS]
         elif k == "background":
@@ -239,8 +241,9 @@ def result_json(res):
     except Exception:  # theory quantification is optional information
         q = None
     areas = []
+    inst = core.instrument_groups(res.cfg)
     for name, (a, s) in res.areas.items():
-        row = {"name": name, "counts": a, "sigma": s, "cps": a / res.live_time}
+        row = {"name": name, "counts": a, "sigma": s, "cps": a / res.live_time, "instrument": name in inst}
         if q and name in q:
             row["atoms"], row["atoms_note"] = q[name]
         areas.append(row)
@@ -297,7 +300,7 @@ def api_example(body, query):
         sample = ["Cr", "Mn", "Fe", "Ni", "Cu", "Mo", "V", "Co", "W"]
         # The file says "uncalibrated" (5 eV per channel); the peaks put the energy scale at about 4.872 eV per channel.
         return set_spectrum(spec, {
-            "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "zero": -0.018, "gain": 0.004872,
+            "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "instrument": ["Rh-L", "Ar"], "zero": -0.018, "gain": 0.004872,
             "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
             "tail_frac": 0.02, "esc_frac": 0.005, "sum_peaks": True, "beam": beam, "tube": tube_cfg,
             # MXR Lightbright 50 end-window tube: standard 50 um Be window, source facing the sample surface (normal incidence);

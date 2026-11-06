@@ -459,8 +459,9 @@ def solve(mx, result, source=None):
     exc = core.excitation(cfg)
     source = source or cfg.xs_source
     meas, notes = {}, []
+    inst = core.instrument_groups(cfg)
     for name, (a, s) in result.areas.items():
-        if name.startswith(("sum:", "Rayleigh", "Compton")):
+        if name.startswith(("sum:", "Rayleigh", "Compton")) or name in inst:
             continue
         meas[name] = (a / result.live_time, s / result.live_time)
     model = Model(mx, list(meas), exc, source)

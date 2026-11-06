@@ -294,3 +294,15 @@ def test_srm1157_example_is_fully_prefilled():
     assert mx["layers"][0]["composition"].count("?") == 9 and mx["fit_k"]
     assert (mx["alpha_in"], mx["alpha_out"], sug["scatter_angle"]) == (90.0, 43.0, 133.0)
     assert sug["beam_filters"][0]["material"] == "Be" and mx["detector"]["si_mm"] == 0.5
+
+
+def test_instrument_lines_stay_out_of_the_sample():
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M
+    cfg = core.Config(elements=["Fe", "Rh-L"], instrument=["Rh-L"], beam=[{"energy": 17.44, "weight": 1.0}])
+    res = NS(cfg=cfg, live_time=100.0, xs_source="xraylib", areas={"Fe-K": (1e6, 1e3), "Rh-L": (5e4, 300.0)})
+    assert core.instrument_groups(cfg) == {"Rh-L"}
+    q = core.quantify_theory(res)
+    assert "Fe-K" in q and "Rh-L" not in q
+    r = M.solve({"layers": [{"composition": "Fe ?", "density": 7.9}], "fit_k": True, "alpha_in": 45, "alpha_out": 45}, res)
+    assert all("Rh" not in n for n in r["notes"])

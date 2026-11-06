@@ -164,6 +164,8 @@ table.beam button:hover { color: var(--text-1); background: var(--surface-3); }
 .mxlayer { margin-bottom: 14px; }
 .mxlayer h3 { margin: 0 0 4px; font-size: 13px; font-weight: 650; }
 .mxlayer h3 span { font-weight: 400; color: var(--text-2); margin-left: 8px; }
+.chip button.inst { font-size: 11px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--line); color: var(--text-3); }
+.chip button.inst.on { color: var(--text-1); background: var(--surface-3); }
 .flt { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) 22px; gap: 6px; align-items: center; margin-top: 6px; }
 .flt button { border: 0; background: none; color: var(--text-3); cursor: pointer; padding: 0 5px; border-radius: 50%; }
 .flt button:hover { color: var(--text-1); background: var(--surface-3); }
@@ -413,7 +415,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false });
 const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, secondary: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0, filters: [] } });
 const DEFAULT_CFG = () => ({
-  elements: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
+  elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
   free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
   sum_peaks: false, free_ratios: false, e0: 20, xs_source: "xraylib",
   beam: [{ energy: 20, weight: 1, use: true, scatter: false }], scatter_angle: 90, compton_broad: 0.2,
@@ -719,7 +721,11 @@ function renderChips() {
       h("i", { style: `background:${colorOf(symOf(tok))}` }), h("span", { text: tok }),
       names && names !== tok ? h("small", { text: "→ " + names }) : null,
       info && !info.ok ? h("small", { text: "no data", title: info.error }) : null,
-      h("button", { "aria-label": "Remove " + tok, title: "Remove", onclick: () => { S.cfg.elements = S.cfg.elements.filter(t => t !== tok); S.groupInfo = S.groupInfo.filter(g => g.token !== tok); renderChips(); renderLegend(); plot.draw(); scheduleGroups(); updateFitEnabled(); } }, "×"));
+      h("button", { class: "inst" + (S.cfg.instrument.includes(tok) ? " on" : ""), "aria-pressed": String(S.cfg.instrument.includes(tok)),
+        title: "Mark as an instrument line (tube anode, air): it is fitted but left out of the sample quantification",
+        onclick: () => { const i = S.cfg.instrument.indexOf(tok); if (i < 0) S.cfg.instrument.push(tok); else S.cfg.instrument.splice(i, 1); markStale(); renderChips(); } },
+        S.cfg.instrument.includes(tok) ? "not sample" : "sample"),
+      h("button", { "aria-label": "Remove " + tok, title: "Remove", onclick: () => { S.cfg.elements = S.cfg.elements.filter(t => t !== tok); S.cfg.instrument = S.cfg.instrument.filter(t => t !== tok); S.groupInfo = S.groupInfo.filter(g => g.token !== tok); renderChips(); renderLegend(); plot.draw(); scheduleGroups(); updateFitEnabled(); } }, "×"));
     box.append(chip);
   });
 }
@@ -1009,7 +1015,7 @@ function renderAreas() {
       h("td", { class: "n", text: fmtInt(a.counts) }), h("td", { class: "n", text: fmtInt(a.sigma) }), h("td", { class: "n", text: rel == null ? "–" : (rel < 10 ? rel.toFixed(1) : rel.toFixed(0)) + " %" }),
       h("td", { class: "n", text: fmtSig(a.cps, 4) }),
       hasAtoms ? h("td", { class: "n", text: a.atoms == null ? "–" : (a.atoms * 100).toFixed(a.atoms < .01 ? 2 : 1) + " %" }) : null,
-      hasAtoms ? h("td", { text: a.atoms_note || "" }) : null));
+      hasAtoms ? h("td", { text: a.instrument ? "instrument line, not in the sample" : (a.atoms_note || "") }) : null));
   }
   tbl.append(tb); p.append(tbl);
   if (hasAtoms) p.append(h("p", { class: "note", text: `Atomic share = net rate divided by the ${r.xs_source} production cross section averaged over the incident spectrum (highest energy ${(+r.e0).toFixed(2)} keV), normalised to 100 %. Scatter peaks are not included. It assumes a thin sample and ignores detector efficiency, filters, matrix absorption and secondary excitation.` }));

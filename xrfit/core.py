@@ -134,6 +134,7 @@ ELECTRON_MC2 = 510.999  # keV
 @dataclass
 class Config:
     elements: list = field(default_factory=list)
+    instrument: list = field(default_factory=list)  # fit tokens for lines that do not come from the sample (tube anode L lines, air Ar)
     zero: float = 0.0
     gain: float = 0.01          # keV / channel
     noise: float = 0.10         # electronic noise FWHM, keV
@@ -357,6 +358,17 @@ def quantify(result, sens, normalize=False):
     return conc
 
 
+def instrument_groups(cfg):
+    """Names of the fitted line groups that come from the instrument (tube, air), not from the sample."""
+    out = set()
+    for tok in cfg.instrument:
+        try:
+            out.update(n for n, _ in _lines.build_groups([tok], cfg.free_ratios, excitation(cfg), cfg.xs_source))
+        except (KeyError, ValueError):
+            pass
+    return out
+
+
 def quantify_theory(result, e0=None, source=None, normalize=True):
     """Relative atomic amounts from fundamental production cross sections (thin sample, mono-
     chromatic excitation at e0): n_i ~ (net counts / live time) / sigma_i(e0).
@@ -365,8 +377,9 @@ def quantify_theory(result, e0=None, source=None, normalize=True):
     e0 = excitation(result.cfg) if e0 is None else e0
     source = result.cfg.xs_source if source is None else source
     out = {}
+    inst = instrument_groups(result.cfg)
     for name, (area, _) in result.areas.items():
-        if name.startswith(("sum:", "Rayleigh", "Compton")):
+        if name.startswith(("sum:", "Rayleigh", "Compton")) or name in inst:
             continue
         sig, note = _lines.group_sigma(name, e0, source)
         if sig > 0:
