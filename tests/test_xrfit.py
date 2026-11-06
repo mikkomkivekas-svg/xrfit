@@ -292,3 +292,5 @@ def test_srm1157_example_is_fully_prefilled():
     assert {"Fe", "Cr", "Mo", "V", "W-L", "Rh-L", "Ar"} <= set(sug["elements"])
     mx = sug["matrix"]
     assert mx["layers"][0]["composition"].count("?") == 9 and mx["fit_k"]
+    assert (mx["alpha_in"], mx["alpha_out"], sug["scatter_angle"]) == (90.0, 43.0, 133.0)
+    assert sug["beam_filters"][0]["material"] == "Be" and mx["detector"]["si_mm"] == 0.5

@@ -299,10 +299,13 @@ def api_example(body, query):
         return set_spectrum(spec, {
             "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "zero": -0.018, "gain": 0.004872,
             "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
-            "tail_frac": 0.02, "esc_frac": 0.005, "sum_peaks": True, "beam": beam, "tube": tube_cfg, "scatter_angle": 90.0,
+            "tail_frac": 0.02, "esc_frac": 0.005, "sum_peaks": True, "beam": beam, "tube": tube_cfg,
+            # MXR Lightbright 50 end-window tube: standard 50 um Be window, source facing the sample surface (normal incidence);
+            # the detector is 47 deg from the sample normal, so 43 deg to the surface and a 133 deg scattering angle.
+            "beam_filters": [{"material": "Be", "density": "", "thickness_um": "50"}], "scatter_angle": 133.0,
             "matrix": {"layers": [{"name": "SRM 1157 tool steel", "composition": "\n".join(f"{e} ?" for e in sample),
                                    "density": "7.8", "thickness_um": "", "fit_thickness": False}],
-                       "alpha_in": 45.0, "alpha_out": 45.0, "k": "", "fit_k": True, "secondary": True,
+                       "alpha_in": 90.0, "alpha_out": 43.0, "k": "", "fit_k": True, "secondary": True,
                        "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 0, "filters": []}}})
     raise ApiError("Unknown example.", 404)
 
