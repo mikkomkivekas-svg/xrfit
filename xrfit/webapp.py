@@ -288,14 +288,22 @@ def api_example(body, query):
     if name in ("srm1157", "ketek"):
         spec = core.load_spectrum(os.path.join(DATA_DIR, "example_srm1157.vspc"))
         spec.name = "srm1157-tool-steel.vspc"
-        beam = tube.tube_beam("Rh", 30.0, 12, 1.5, 0.25)         # the measurement used a Rh tube at 30 kV
+        tube_cfg = {"anode": "Rh", "kv": 30.0, "bins": 24, "line_share": 0.25}   # the measurement used a Rh tube at 30 kV
+        beam = tube.tube_beam(tube_cfg["anode"], tube_cfg["kv"], tube_cfg["bins"], 1.5, tube_cfg["line_share"])
         for r in beam:
             r["energy"] = round(r["energy"], 4)
-        # The file says "uncalibrated" (5 eV per channel); the peaks put the real scale at about 4.872 eV per channel.
-        return set_spectrum(spec, {"elements": ["Cr", "Mn", "Fe", "Ni", "Cu", "Mo", "V", "Co", "W-L"], "zero": -0.018,
-                                   "gain": 0.004872, "emin": 1.8, "emax": 22.0, "beam": beam,
-                                   "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
-                                   "tail_frac": 0.02, "esc_frac": 0.005})
+        # Sample elements, then the lines that are in the spectrum for other reasons: Mo L (same Mo as the K line),
+        # Rh L from the tube, Ar from the air path and Ca as a trace.
+        sample = ["Cr", "Mn", "Fe", "Ni", "Cu", "Mo", "V", "Co", "W"]
+        # The file says "uncalibrated" (5 eV per channel); the peaks put the energy scale at about 4.872 eV per channel.
+        return set_spectrum(spec, {
+            "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "zero": -0.018, "gain": 0.004872,
+            "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
+            "tail_frac": 0.02, "esc_frac": 0.005, "sum_peaks": True, "beam": beam, "tube": tube_cfg, "scatter_angle": 90.0,
+            "matrix": {"layers": [{"name": "SRM 1157 tool steel", "composition": "\n".join(f"{e} ?" for e in sample),
+                                   "density": "7.8", "thickness_um": "", "fit_thickness": False}],
+                       "alpha_in": 45.0, "alpha_out": 45.0, "k": "", "fit_k": True, "secondary": True,
+                       "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 0, "filters": []}}})
     raise ApiError("Unknown example.", 404)
 
 

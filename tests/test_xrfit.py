@@ -279,3 +279,16 @@ def test_detector_filters_reduce_low_energy_efficiency():
     p0, p1 = base.predict(fr, [math.inf]), filt.predict(fr, [math.inf])
     r_fe, r_cu = p1["Fe-K"] / p0["Fe-K"], p1["Cu-K"] / p0["Cu-K"]
     assert r_fe < r_cu < 1                              # soft Fe K is cut harder than Cu K
+
+
+def test_srm1157_example_is_fully_prefilled():
+    import json
+    from xrfit import webapp
+    status, _, body, _ = webapp.dispatch("GET", "/api/example?name=srm1157", {}, b"")
+    d = json.loads(body)
+    sug = d["suggest"]
+    assert status == 200 and d["live_time"] > 95 and "REDACTED" in json.dumps(d["meta"])
+    assert sug["tube"]["anode"] == "Rh" and sug["tube"]["kv"] == 30.0 and sug["sum_peaks"]
+    assert {"Fe", "Cr", "Mo", "V", "W-L", "Rh-L", "Ar"} <= set(sug["elements"])
+    mx = sug["matrix"]
+    assert mx["layers"][0]["composition"].count("?") == 9 and mx["fit_k"]

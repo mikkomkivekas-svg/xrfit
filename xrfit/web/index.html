@@ -1094,7 +1094,8 @@ function applySpectrum(d, isExample) {
   S.spec = { name: d.name, counts: Float64Array.from(d.counts), calib: d.calib, live_time: d.live_time, meta: d.meta };
   S.result = null; S.stale = false; S.view = null; S.cursor = null; S.preview = null; S.showAllMeta = false;
   const sug = d.suggest || {};
-  if (isExample) { S.cfg = Object.assign(DEFAULT_CFG(), sug); S.slot = {}; S.groupInfo = []; }
+  if (isExample) { S.cfg = Object.assign(DEFAULT_CFG(), sug); delete S.cfg.tube; S.slot = {}; S.groupInfo = []; }
+  if (isExample && sug.tube) { $("#tube-anode").value = sug.tube.anode; $("#tube-kv").value = sug.tube.kv; $("#tube-bins").value = sug.tube.bins; $("#tube-share").value = Math.round(sug.tube.line_share * 100); }
   else { if (sug.zero != null) { S.cfg.zero = sug.zero; S.cfg.gain = sug.gain; } if (!d.calib && S.cfg.gain === 0.01 && !S.cfg.elements.length) { /* keep default */ } }
   $("#filemeta").replaceChildren(h("b", { text: d.name }), ` · ${d.n.toLocaleString("en-US")} channels · ${fmtInt(d.total)} counts · live time ${fmtSig(d.live_time, 5)} s` + (d.format ? ` · ${d.format}` : ""));
   syncInputs(); renderMeta(); renderLegend(); renderAreas(); plot.resetView(); updateFitEnabled(); refreshGroups();
