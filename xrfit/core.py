@@ -257,10 +257,20 @@ def fit_elements(cfg):
     return list(cfg.elements) + (["Ar-K"] if air_argon(cfg) else [])
 
 
+def fit_groups(cfg):
+    """Line groups to fit: the sample elements (alpha/beta/gamma split when free_ratios) plus the air argon,
+    which is always one Ar-K group with Kbeta tied to Kalpha, so that only its Kalpha height is fitted."""
+    exc = excitation(cfg)
+    groups = list(build_groups(cfg.elements, cfg.free_ratios, exc, cfg.xs_source))
+    if air_argon(cfg):
+        groups += build_groups(["Ar-K"], False, exc, cfg.xs_source)
+    return groups
+
+
 def design(cfg, p, ch):
     e = p["zero"] + p["gain"] * ch
     de = p["gain"]
-    groups = build_groups(fit_elements(cfg), cfg.free_ratios, excitation(cfg), cfg.xs_source)
+    groups = fit_groups(cfg)
     cols, names, nonneg = [], [], []
     for name, lines in groups:
         cols.append(sum(w * peak(e, E, p, de) for E, w in lines))
@@ -411,11 +421,13 @@ def quantify(result, sens, normalize=False):
 def instrument_groups(cfg):
     """Names of the fitted line groups that come from the instrument (tube, air), not from the sample."""
     out = set()
-    for tok in list(cfg.instrument) + (["Ar-K"] if air_argon(cfg) else []):
+    for tok in cfg.instrument:
         try:
             out.update(n for n, _ in _lines.build_groups([tok], cfg.free_ratios, excitation(cfg), cfg.xs_source))
         except (KeyError, ValueError):
             pass
+    if air_argon(cfg):
+        out.add("Ar-K")
     return out
 
 

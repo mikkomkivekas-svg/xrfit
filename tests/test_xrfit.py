@@ -440,8 +440,9 @@ def test_beam_spot_changes_fitted_air_path():
 def test_air_argon_added_automatically():
     from xrfit import core
     cfg = core.Config(elements=["Si-K"], matrix={"detector": {"air_mm": 30}})
-    assert core.fit_elements(cfg) == ["Si-K", "Ar-K"] and {"Ar-Ka", "Ar-Kb"} <= core.instrument_groups(cfg)   # alpha and beta fitted separately by default
-    assert "Ar-K" in core.instrument_groups(core.Config(elements=["Si-K"], free_ratios=False, matrix={"detector": {"air_mm": 30}}))
+    assert core.fit_elements(cfg) == ["Si-K", "Ar-K"] and "Ar-K" in core.instrument_groups(cfg)
+    names = [n for n, _ in core.fit_groups(cfg)]                  # alpha/beta split for the sample, one tied Ar-K group
+    assert "Si-Ka" in names and "Si-Kb" in names and "Ar-K" in names and "Ar-Ka" not in names
     assert core.fit_elements(core.Config(elements=["Si-K"])) == ["Si-K"]                       # no air path set: unchanged
     assert core.fit_elements(core.Config(elements=["Si-K"], argon="on")) == ["Si-K", "Ar-K"]
     assert core.fit_elements(core.Config(elements=["Si-K"], argon="off", matrix={"detector": {"air_mm": 30}})) == ["Si-K"]
