@@ -370,3 +370,17 @@ def test_air_path_fit_recovers_distance():
     mx = {**geo, "detector": det(30.0), "fit_k": True, "fit_air": True, "composition_known": True}
     r = M.solve(mx, res)
     assert abs(r["air_path"]["fitted_mm"] - 27.0) < 0.5 and r["air_path"]["start_mm"] == 30.0
+
+
+def test_si_escape_ratio_and_long_tail():
+    import numpy as np
+    from xrfit import core
+    assert core.si_escape_ratio(1.80) == 0.0 and core.si_escape_ratio(2.0) > core.si_escape_ratio(2.7) > core.si_escape_ratio(6.4) > core.si_escape_ratio(20)
+    assert 0.010 < core.si_escape_ratio(2.7) < 0.015 and 0.002 < core.si_escape_ratio(6.4) < 0.004      # about 1.2 % at Rh La, 0.3 % at Fe Ka
+    e = np.arange(0, 12, 0.005)
+    p = dict(core.Config(tail2_frac=0.05, beta2=0.6, esc_scale=1.0).params())
+    y = core.peak(e, 5.0, p, 0.005)
+    esc = y[(e > 3.1) & (e < 3.4)].sum()                       # escape peak at 5 - 1.74 keV plus the long tail below the line
+    assert abs(y.sum() - (1 + core.si_escape_ratio(5.0))) < 0.01 and esc > 0
+    p0 = dict(p, tail2_frac=0.0)
+    assert core.peak(e, 5.0, p, 0.005)[(e > 1) & (e < 2)].sum() > core.peak(e, 5.0, p0, 0.005)[(e > 1) & (e < 2)].sum()

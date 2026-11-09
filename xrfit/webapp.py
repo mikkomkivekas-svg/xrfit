@@ -32,11 +32,11 @@ WEB_DIR = os.path.join(HERE, "web")
 DATA_DIR = os.path.join(HERE, "data")
 MAX_BODY = 256 * 1024 * 1024
 CFG_FIELDS = {f.name for f in dataclasses.fields(core.Config)}
-NUM = {"zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "emin", "emax", "e0",
+NUM = {"zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "esc_scale", "tail2_frac", "beta2", "emin", "emax", "e0",
        "scatter_angle", "compton_broad"}
 INT = {"snip_width", "snip_smooth", "poly_order"}
 BOOL = {"sum_peaks", "free_ratios"}
-PARAMS = ["zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "compton_broad"]
+PARAMS = ["zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "esc_scale", "tail2_frac", "beta2", "compton_broad"]
 BACKGROUNDS = ("snip", "poly", "snip+poly", "none")
 SOURCES = ("xraylib", "krause")
 
@@ -301,8 +301,8 @@ def api_example(body, query):
         # The file says "uncalibrated" (5 eV per channel); the peaks put the energy scale at about 4.872 eV per channel.
         return set_spectrum(spec, {
             "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "instrument": ["Rh-L", "Ar"], "zero": -0.018, "gain": 0.004872,
-            "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"],
-            "tail_frac": 0.02, "esc_frac": 0.005, "sum_peaks": True, "beam": beam, "tube": tube_cfg,
+            "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_scale"],
+            "tail_frac": 0.02, "esc_frac": 0.0, "sum_peaks": True, "beam": beam, "tube": tube_cfg,
             # MXR Lightbright 50 end-window tube: standard 50 um Be window, source facing the sample surface (normal incidence);
             # the detector is 47 deg from the sample normal, so 43 deg to the surface and a 133 deg scattering angle.
             "beam_filters": [{"material": "Be", "density": "", "thickness_um": "50"}], "scatter_angle": 133.0,

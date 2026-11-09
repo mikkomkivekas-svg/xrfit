@@ -419,7 +419,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false, reference: "" });
 const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, secondary: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0, filters: [] } });
 const DEFAULT_CFG = () => ({
-  elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0,
+  elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0, esc_scale: 1, tail2_frac: 0, beta2: 0.6,
   free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
   sum_peaks: false, free_ratios: false, e0: 20, xs_source: "xraylib",
   beam: [{ energy: 20, weight: 1, use: true, scatter: false }], scatter_angle: 90, compton_broad: 0.2,
@@ -441,7 +441,7 @@ const S = {
 const PARAMS = [
   ["zero", "Zero offset (keV)"], ["gain", "Gain (keV/channel)"], ["noise", "Electronic noise FWHM (keV)"],
   ["fano", "Fano factor"], ["tail_frac", "Tail fraction"], ["beta", "Tail slope β (keV)"],
-  ["step_frac", "Step fraction"], ["esc_frac", "Si escape fraction"], ["compton_broad", "Compton broadening (keV)"],
+  ["step_frac", "Step fraction"], ["esc_frac", "Extra escape fraction"], ["esc_scale", "Si escape scale (calculated)"], ["tail2_frac", "Long tail fraction"], ["beta2", "Long tail length (keV)"], ["compton_broad", "Compton broadening (keV)"],
 ];
 const MC2 = 510.999;
 const usedBeam = () => S.cfg.beam.filter(b => b.use && b.weight > 0);

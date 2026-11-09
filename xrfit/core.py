@@ -8,6 +8,7 @@ polynomial background terms are solved linearly (variable projection, areas >= 0
 from __future__ import annotations
 
 import copy
+import functools
 import math
 import json
 import re
@@ -99,34 +100,59 @@ def sigma_of(E, p):
     return np.sqrt((p["noise"] / FWHM_K) ** 2 + EPS_SI * p["fano"] * max(E, 0.0))
 
 
-def profile(e, E0, s, de, tail_frac, beta, step_frac):
-    """Gaussian + exponential low-energy tail (hypermet) + step; area per unit = 1."""
+def _exp_tail(x, s, beta, ex, de):
+    """Gaussian convolved with a one-sided exponential (unit area), stable on both sides of the peak."""
+    b = x / (np.sqrt(2) * s) + s / (np.sqrt(2) * beta)
+    pos = b >= 0  # erfcx form is stable for b>=0; plain erfc form for b<0
+    return np.where(pos, ex * erfcx(np.where(pos, b, 0.0)),
+                    np.exp(np.minimum(x / beta + s * s / (2 * beta * beta), 700))
+                    * erfc(np.where(pos, 0.0, b))) / (2 * beta) * de
+
+
+def profile(e, E0, s, de, tail_frac, beta, step_frac, tail2_frac=0.0, beta2=0.6):
+    """Gaussian + short exponential tail (hypermet) + long exponential tail + step; area per unit = 1."""
     x = e - E0
     ex = np.exp(-0.5 * (x / s) ** 2)
-    y = ex / (s * SQ2PI) * de
+    g = ex / (s * SQ2PI) * de
+    y = (1 - tail_frac - tail2_frac) * g
     if tail_frac > 0:
-        b = x / (np.sqrt(2) * s) + s / (np.sqrt(2) * beta)
-        pos = b >= 0  # erfcx form is stable for b>=0; plain erfc form for b<0
-        t = np.where(pos, ex * erfcx(np.where(pos, b, 0.0)),
-                     np.exp(np.minimum(x / beta + s * s / (2 * beta * beta), 700))
-                     * erfc(np.where(pos, 0.0, b))) / (2 * beta) * de
-        y = (1 - tail_frac) * y + tail_frac * t
+        y = y + tail_frac * _exp_tail(x, s, beta, ex, de)
+    if tail2_frac > 0:
+        y = y + tail2_frac * _exp_tail(x, s, max(beta2, beta), ex, de)
     if step_frac > 0:
         y = y + step_frac * 0.5 * erfc(x / (np.sqrt(2) * s)) * de / (s * SQ2PI)
     return y
 
 
+@functools.lru_cache(maxsize=None)
+def si_escape_ratio(E):
+    """Intensity of the Si K-alpha escape peak relative to the full-energy peak, for a thick Si detector.
+    Reed & Ware: P = 1/2 w_K f_Ka (r-1)/r [1 - (mu_Ka/mu_E) ln(1 + mu_E/mu_Ka)] is the share of absorbed photons whose
+    Si K-alpha photon leaves the crystal through the front face; the peak ratio is P / (1 - P). Zero below the Si K edge."""
+    from . import attenuation, xdata
+    x = xdata.xl()["Si"]
+    if E <= x["edge_keV"]["K"] + 1e-3:
+        return 0.0
+    w, r = x["fluor_yield_xraylib"]["K"], x["jump"]["K"]
+    f_ka = (x["rate"]["KL3"] + x["rate"]["KL2"]) / (x["rate"]["KL3"] + x["rate"]["KL2"] + x["rate"]["KM3"] + x["rate"]["KM2"])
+    mu_k, mu_e = attenuation.mu("Si", SI_ESCAPE), attenuation.mu("Si", E)
+    pr = 0.5 * w * f_ka * (r - 1) / r * (1 - (mu_k / mu_e) * math.log(1 + mu_e / mu_k))
+    return pr / (1 - pr)
+
+
 def peak(e, E, p, de):
-    y = profile(e, E, sigma_of(E, p), de, p["tail_frac"], p["beta"], p["step_frac"])
-    if p["esc_frac"] > 0 and E > SI_ESCAPE + 0.3:
+    y = profile(e, E, sigma_of(E, p), de, p["tail_frac"], p["beta"], p["step_frac"], p.get("tail2_frac", 0.0), p.get("beta2", 0.6))
+    r = p.get("esc_frac", 0.0) + p.get("esc_scale", 0.0) * si_escape_ratio(round(float(E), 4))
+    if r > 0 and E > SI_ESCAPE + 0.1:
         Ee = E - SI_ESCAPE
-        y = y + p["esc_frac"] * profile(e, Ee, sigma_of(Ee, p), de, 0, 0.1, 0)
+        y = y + r * profile(e, Ee, sigma_of(Ee, p), de, 0, 0.1, 0)
     return y
 
 
 PARAM_BOUNDS = {  # relative to start for zero/gain, absolute otherwise
     "noise": (0.01, 0.6), "fano": (0.05, 0.3), "tail_frac": (0.0, 0.5),
-    "beta": (0.02, 0.6), "step_frac": (0.0, 0.2), "esc_frac": (0.0, 0.1), "compton_broad": (0.0, 1.5),
+    "beta": (0.02, 0.6), "step_frac": (0.0, 0.2), "esc_frac": (0.0, 0.1), "esc_scale": (0.0, 5.0),
+    "tail2_frac": (0.0, 0.3), "beta2": (0.15, 3.0), "compton_broad": (0.0, 1.5),
 }
 ELECTRON_MC2 = 510.999  # keV
 
@@ -142,7 +168,10 @@ class Config:
     tail_frac: float = 0.0
     beta: float = 0.10
     step_frac: float = 0.0
-    esc_frac: float = 0.0
+    esc_frac: float = 0.0       # extra constant escape ratio on top of the calculated one
+    esc_scale: float = 1.0      # multiplier of the calculated Si escape ratio (si_escape_ratio)
+    tail2_frac: float = 0.0     # long low-energy tail (shelf under strong soft lines) share and length
+    beta2: float = 0.6
     free: list = field(default_factory=lambda: ["zero", "gain", "noise"])
     emin: float = 0.0
     emax: float = 1e9
@@ -172,7 +201,7 @@ class Config:
 
     def params(self):
         return {k: getattr(self, k) for k in
-                ("zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "compton_broad")}
+                ("zero", "gain", "noise", "fano", "tail_frac", "beta", "step_frac", "esc_frac", "esc_scale", "tail2_frac", "beta2", "compton_broad")}
 
 
 def _beam_rows(cfg):

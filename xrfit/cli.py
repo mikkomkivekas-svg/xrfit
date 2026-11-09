@@ -12,7 +12,7 @@ import sys
 
 from . import core, io_ketek, lines, matrix, tube, xdata
 
-CFG_KEYS = ("zero gain noise fano tail_frac beta step_frac esc_frac emin emax snip_width "
+CFG_KEYS = ("zero gain noise fano tail_frac beta step_frac esc_frac esc_scale tail2_frac beta2 emin emax snip_width "
             "snip_smooth poly_order e0 scatter_angle compton_broad").split()
 
 
@@ -56,7 +56,7 @@ class Shell(cmd.Cmd):
             print(io_ketek.describe(self.spec.meta, show_all="all" in a, name=self.spec.name))
 
     def do_set(self, a):
-        "set <name> <value>  - zero gain noise fano tail_frac beta step_frac esc_frac emin emax\n"\
+        "set <name> <value>  - zero gain noise fano tail_frac beta step_frac esc_frac esc_scale tail2_frac beta2 emin emax\n"\
         "                      snip_width snip_smooth poly_order e0 (single excitation keV; clears 'beam') |\n"\
         "                      scatter_angle (deg) compton_broad (keV at 20 keV, scales with E) |\n"\
         "                      xs_source xraylib|krause | background snip|poly|snip+poly|none\n"\
