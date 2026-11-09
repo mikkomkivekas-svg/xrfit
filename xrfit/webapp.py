@@ -325,8 +325,10 @@ def api_example(body, query):
         return set_spectrum(spec, {
             # Sample lines, then the tube's Rh L lines (instrument, not sample). Al is listed although this sample has
             # none (it is fitted as zero); with Al in the sample, the Ar K-beta escape peak at 1.45 keV lies 36 eV below Al K-alpha.
+            # Rh Ll (2.377 keV, about 2 % of Rh La) is the tube's line next to the S K group: without it the bump at 2.38 keV
+            # is put into S and the S area is too high by a factor of about 2. S K and Mo L (2.293 keV) cannot be told apart here.
             # The Ar K group from the 30 mm of air is added by the fit itself (argon: auto) as one tied K-alpha + K-beta group.
-            "elements": ["Al-K", "Si-K", "S-K", "Rh-La1", "Rh-Lb1"], "instrument": ["Rh-La1", "Rh-Lb1"],
+            "elements": ["Al-K", "Si-K", "S-K", "Rh-La1", "Rh-Lb1", "Rh-Ll"], "instrument": ["Rh-La1", "Rh-Lb1", "Rh-Ll"],
             # Alpha and beta lines are fitted separately (default). No incident spectrum table: at 5 kV the Rh L scatter
             # peaks lie within 15 eV of the Rh L fluorescence lines and cannot be separated, so the Rh L lines are fitted as lines.
             "e0": 5.0, "zero": 0.0, "gain": 0.00487, "emin": 0.8, "emax": 3.5,

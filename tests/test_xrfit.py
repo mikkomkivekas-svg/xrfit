@@ -465,4 +465,4 @@ def test_coated_soft_line_example_is_prefilled_and_fits():
     assert sug["gain"] == 0.00487 and "esc_scale" in sug["free"] and sug["matrix"]["detector"]["air_mm"] == 30
     r = webapp.api_fit({"config": sug}, None)
     names = {a["name"]: a for a in r["areas"]}
-    assert r["chi2red"] < 10 and names["Ar-K"]["instrument"] and names["Si-Ka"]["counts"] > 40000 and "Ar-Ka" not in names
+    assert r["chi2red"] < 7 and names["Rh-Ll"]["instrument"] and names["Ar-K"]["instrument"] and names["Si-Ka"]["counts"] > 40000 and "Ar-Ka" not in names
