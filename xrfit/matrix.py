@@ -27,6 +27,42 @@ AIR = {"N": 0.7552, "O": 0.2314, "Ar": 0.0128}   # mass fractions of dry air
 AIR_RHO, BE_RHO, SI_RHO = 1.205e-3, 1.848, 2.33
 
 
+def spot_nodes(spot_mm, profile="uniform", n=40):
+    """Radial quadrature over the excited spot: (rho in cm, normalised weights).
+
+    spot_mm is the diameter of a uniform spot, or the FWHM of a Gaussian one (cut at 3 sigma).
+    The weights are the share of the emitted fluorescence that comes from each ring."""
+    if not spot_mm or spot_mm <= 0:
+        return np.zeros(1), np.ones(1)
+    x, w = np.polynomial.legendre.leggauss(n)
+    if profile == "gaussian":
+        sig = spot_mm / 2.3548 / 10
+        rmax = 3 * sig
+        rho = 0.5 * rmax * (x + 1)
+        w = 0.5 * rmax * w * np.exp(-rho ** 2 / (2 * sig ** 2)) * rho
+    else:
+        rmax = spot_mm / 20
+        rho = 0.5 * rmax * (x + 1)
+        w = 0.5 * rmax * w * rho
+    return rho, w / w.sum()
+
+
+def spot_factor(mu_air, air_mm, spot_mm=0.0, profile="uniform"):
+    """Spot-averaged detection factor relative to a point source on the detector axis at the same
+    distance: sum over the spot of (d/r)^3 exp(-mu (r - 0)), with r = sqrt(d^2 + rho^2).
+
+    (d/r)^3 is the solid angle of a detector facing the sample, relative to the axis (cos/r^2);
+    exp(-mu r) is the transmission of the longer slanted air path. With no spot this is exactly
+    exp(-mu d). mu_air is the linear attenuation of air in 1/cm and may be an array."""
+    mu = np.atleast_1d(np.asarray(mu_air, float))
+    d = float(air_mm) / 10
+    if d <= 0:
+        return np.ones_like(mu)
+    rho, w = spot_nodes(spot_mm, profile)
+    r = np.sqrt(d * d + rho * rho)
+    return ((d / r) ** 3 * np.exp(-mu[:, None] * r[None, :])) @ w
+
+
 class MatrixError(ValueError):
     pass
 
@@ -258,6 +294,10 @@ class Model:
         det = mx.get("detector") or {}
         self.si_cm, self.be_cm, self.air_cm = (float(det.get("si_mm", 0.5)) / 10, float(det.get("be_um", 0)) * 1e-4,
                                                float(det.get("air_mm", 0)) / 10)
+        self.spot_mm = float(det.get("spot_mm") or 0)
+        self.spot_profile = "gaussian" if det.get("spot_profile") == "gaussian" else "uniform"
+        if self.spot_mm < 0:
+            raise MatrixError("the beam spot diameter cannot be negative")
         self.det_filters = det.get("filters") or []
         parse_filters(self.det_filters)       # fail early with a readable message
         self.beam = lines.beam_energies(exc)
@@ -318,7 +358,12 @@ class Model:
     def set_air(self, air_mm):
         """Set the air path between sample and detector (mm) and update the detection efficiency."""
         self.air_cm = float(air_mm) / 10
-        self.eff = {k: v * math.exp(-self._mu_air[k] * self.air_cm) for k, v in self._eff_fixed.items()}
+        keys = list(self._eff_fixed)
+        if self.spot_mm > 0 and self.air_cm > 0:  # average the air attenuation and solid angle over the spot
+            f = spot_factor([self._mu_air[k] for k in keys], air_mm, self.spot_mm, self.spot_profile)
+            self.eff = {k: self._eff_fixed[k] * float(fk) for k, fk in zip(keys, f)}
+        else:
+            self.eff = {k: v * math.exp(-self._mu_air[k] * self.air_cm) for k, v in self._eff_fixed.items()}
 
     def _mu_layer(self, frac, E):
         i = [self.idx[round(x, 9)] for x in np.atleast_1d(E)]

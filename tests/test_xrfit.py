@@ -406,3 +406,32 @@ def test_calibration_line_and_roi():
     s = core.Spectrum(y, "t", 2.0)
     (v, e), = calibration.roi_signals([s], 0.0, 0.005, 2.0, 2.1, normalize="live_time")
     assert abs(v - 100.0) < 1e-9 and e > 0
+
+
+def test_beam_spot_average():
+    from xrfit import matrix
+    mu = np.array([1.469, 0.267])  # air, 1/cm, near Al Ka and Rh La
+    point = matrix.spot_factor(mu, 30, 0)
+    assert np.allclose(point, np.exp(-mu * 3.0))                 # no spot: plain transmission
+    assert np.allclose(matrix.spot_factor(mu, 30, 1e-6), point, rtol=1e-6)
+    wide = matrix.spot_factor(mu, 30, 40)
+    assert np.all(wide < point) and wide[0] / point[0] < wide[1] / point[1]   # soft lines lose more
+    g = matrix.spot_factor(mu, 30, 20, "gaussian")               # FWHM 20 mm is more compact than a 40 mm disc
+    assert np.all(g > wide) and np.all(g < point)
+
+
+def test_beam_spot_changes_fitted_air_path():
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M, tube
+    cfg = core.Config(beam=tube.tube_beam("Rh", 5.0, 30, 1.0, 0.1))
+    comp = "Al 20.9\nSi 21.7\nO 55.8\nH 1.6"
+    geo = {"alpha_in": 45, "alpha_out": 45, "secondary": False, "layers": [{"composition": comp, "density": 2.6}]}
+    names = ["Al-K", "Si-K"]
+    truth = M.Model({**geo, "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 27.0, "spot_mm": 40}}, names, core.excitation(cfg), "xraylib")
+    f = truth.predict([{"Al": .209, "Si": .217, "O": .558, "H": .016}], [float("inf")])
+    res = NS(cfg=cfg, live_time=100.0, areas={n: (1e5 * v * 100, 100.0) for n, v in f.items()})
+    def fit(spot):
+        mx = {**geo, "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 30.0, "spot_mm": spot}, "fit_k": True, "fit_air": True, "composition_known": True}
+        return M.solve(mx, res)["air_path"]["fitted_mm"]
+    assert abs(fit(40) - 27.0) < 0.5
+    assert fit(0) > 28.0          # a point-source model reads the extra slanted-path absorption as a longer air gap

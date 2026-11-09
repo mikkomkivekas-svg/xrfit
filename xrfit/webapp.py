@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import calibration, core, demo, io_ketek, lines, matrix, tube, xdata
+from . import attenuation, calibration, core, demo, io_ketek, lines, matrix, tube, xdata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -417,6 +417,37 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
+def api_spot(body, query):
+    """Detection efficiency of soft lines versus the air distance, with the beam spot averaged in."""
+    try:
+        d1 = float(body.get("air_mm")); d2 = body.get("compare_mm")
+        d2 = None if d2 in (None, "") else float(d2)
+        spot = float(body.get("spot_mm") or 0)
+        prof = "gaussian" if body.get("profile") == "gaussian" else "uniform"
+    except (TypeError, ValueError):
+        raise ApiError("Distances and spot size must be numbers.") from None
+    if d1 <= 0 or (d2 is not None and d2 <= 0) or spot < 0:
+        raise ApiError("Distances must be above zero and the spot size cannot be negative.")
+    lines_ = body.get("lines") or [["Al Ka", 1.4867], ["Si Ka", 1.7400], ["S Ka", 2.3076], ["Rh La", 2.6967], ["Ar Ka", 2.9577], ["Fe Ka", 6.404]]
+    names, E = [str(a) for a, _ in lines_], np.array([float(b) for _, b in lines_])
+    mu = np.array([sum(w * attenuation.mu(s, e) for s, w in matrix.AIR.items()) * matrix.AIR_RHO for e in E])
+    rho, w = matrix.spot_nodes(spot, prof)
+    edge = float(rho[-1])
+    rows = []
+    for n, e, m_ in zip(names, E, mu):
+        a_pt = float(matrix.spot_factor([m_], d1, 0)[0])            # on-axis air transmission
+        a_sp = float(matrix.spot_factor([m_], d1, spot, prof)[0])   # spot average of solid angle x slanted-path transmission
+        r = {"line": n, "E_keV": float(e), "transmission": a_pt, "spot_average": a_sp, "spot_vs_point": a_sp / a_pt}
+        h = math.hypot(d1 / 10, edge)
+        r["edge_vs_centre"] = float((d1 / 10 / h) ** 3 * math.exp(-m_ * (h - d1 / 10))) if spot > 0 else 1.0
+        if d2 is not None:  # detected rate scales as (factor / distance^2) at fixed tube and sample
+            q = (d1 / d2) ** 2
+            r["gain"] = float(matrix.spot_factor([m_], d2, spot, prof)[0]) / a_sp * q
+            r["gain_point"] = float(matrix.spot_factor([m_], d2, 0)[0]) / a_pt * q
+        rows.append(r)
+    return {"rows": rows, "air_mm": d1, "compare_mm": d2, "spot_mm": spot, "profile": prof}
+
+
 def api_calsignals(body, query):
     """Signal (ROI sum or fitted net area) of each calibration spectrum."""
     files = body.get("files") or []
@@ -465,7 +496,7 @@ def api_calfit(body, query):
         raise ApiError(msg(e)) from e
 
 
-POST_ROUTES = {"/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

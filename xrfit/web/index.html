@@ -295,7 +295,17 @@ table.data tr:hover td { background: var(--surface-2); }
             <div class="field"><label for="d-si">Si thickness (mm)</label><input type="number" id="d-si" min="0" step="any"></div>
             <div class="field"><label for="d-be">Be window (µm)</label><input type="number" id="d-be" min="0" step="any"></div>
             <div class="field"><label for="d-air">Air path (mm)</label><input type="number" id="d-air" min="0" step="any"></div>
+            <div class="field"><label for="d-spot">Beam spot diameter (mm)</label><input type="number" id="d-spot" min="0" step="any" placeholder="0 = point"></div>
+            <div class="field"><label for="d-prof">Spot profile</label><select id="d-prof"><option value="uniform">Uniform disc</option><option value="gaussian">Gaussian (FWHM)</option></select></div>
           </div>
+          <p class="hint">A broad spot is seen at different angles and distances across its width. With a spot size the matrix calculation averages the air absorption and solid angle over it, which lowers the soft lines (Al, Si) more than the harder ones. Leave at 0 to treat the spot as a point on the detector axis.</p>
+          <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--text-2)">Distance calculator</summary>
+            <div class="grid2" style="margin-top:8px">
+              <div class="field"><label for="sp-cmp">Compare with air path (mm)</label><input type="number" id="sp-cmp" min="0" step="any" placeholder="e.g. 20"></div>
+              <div class="field"><label>&nbsp;</label><button class="btn" id="sp-run">Calculate</button></div>
+            </div>
+            <div id="sp-out" style="margin-top:8px"></div>
+          </details>
           <div style="margin-top:10px"><b style="font-size:12px">Filters before the detector</b></div>
           <div id="det-filters"></div>
         </details>
@@ -941,7 +951,7 @@ $("#n-layers").onchange = e => {
 function syncMatrix() {
   const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-fitshare").checked = !!m.fit_line_share; $("#mx-fitair").checked = !!m.fit_air; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
   $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out;
-  const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm;
+  const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm; $("#d-spot").value = d.spot_mm ?? ""; $("#d-prof").value = d.spot_profile || "uniform";
   renderLayers(); renderDetFilters();
 }
 $("#mx-k").addEventListener("input", e => { mx().k = e.target.value; });
@@ -950,7 +960,20 @@ $("#mx-sec").onchange = e => { mx().secondary = e.target.checked; };
 $("#mx-fitshare").onchange = e => { mx().fit_line_share = e.target.checked; };
 $("#mx-fitair").onchange = e => { mx().fit_air = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
-for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
+for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"], ["d-spot", "spot_mm"], ["d-prof", "spot_profile"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
+$("#sp-run").onclick = async () => {
+  const out = $("#sp-out"), d = mx().detector;
+  try {
+    const r = await api("/api/spot", { air_mm: d.air_mm, compare_mm: $("#sp-cmp").value, spot_mm: d.spot_mm || 0, profile: d.spot_profile });
+    const cmp = r.compare_mm != null, f2 = v => v.toFixed(2);
+    const head = ["Line", "keV", "Air transmission, on axis", "Spot average vs point", "Edge vs centre weight"].concat(cmp ? [`Gain at ${r.compare_mm} mm`].concat(r.spot_mm > 0 ? ["Gain, point source"] : []) : []);
+    out.replaceChildren(h("table", { class: "data" }, h("thead", {}, h("tr", {}, head.map((t, i) => h("th", { class: i > 0 ? "n" : "", text: t })))),
+      h("tbody", {}, r.rows.map(x => h("tr", {}, h("td", { text: x.line }), h("td", { class: "n", text: x.E_keV.toFixed(3) }), h("td", { class: "n", text: (100 * x.transmission).toFixed(1) + " %" }),
+        h("td", { class: "n", text: r.spot_mm > 0 ? f2(x.spot_vs_point) : "–" }), h("td", { class: "n", text: r.spot_mm > 0 ? f2(x.edge_vs_centre) : "–" }),
+        cmp ? h("td", { class: "n", text: "×" + f2(x.gain) }) : null, cmp && r.spot_mm > 0 ? h("td", { class: "n", text: "×" + f2(x.gain_point) }) : null)))),
+      h("p", { class: "hint", text: "Gain is the change in detected rate for the same tube and sample (solid angle and air together), before dead-time effects. The distance is from the sample to the detector window." }));
+  } catch (e) { out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+};
 $("#mx-run").onclick = async () => {
   const err = $("#mx-err"); err.hidden = true;
   if (!S.result) { err.textContent = "Fit the spectrum first. The calculation uses the fitted net areas."; err.hidden = false; return; }

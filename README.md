@@ -36,6 +36,14 @@ Fits a straight line `signal = a + b × amount` to standards of known amount (fi
 
 Options: force the line through zero, and weight by counting error. The result downloads as a table (CSV) and as calibration constants (JSON). The energy window uses the zero and gain you enter, which start from the Elements settings.
 
+## Beam spot size
+
+A broad excitation spot is not seen uniformly. Fluorescence from the edge of a 40 mm spot reaches the detector through a longer, slanted air path and at a smaller solid angle than fluorescence from the centre. Under **Sample matrix → Detector and path**, set the **beam spot diameter** (a uniform disc, or the FWHM of a Gaussian) and the matrix calculation averages the air absorption and solid angle over the spot: each ring of radius ρ is weighted by its share of the emitted light, with a solid-angle factor (d/r)³ and air transmission exp(−μr), where r = √(d² + ρ²) and d is the air path. A spot of 0 reproduces the earlier point-source model exactly.
+
+The effect depends on energy, so it does not cancel into the instrument factor K. For a 40 mm disc at 30 mm it lowers Al Kα to about half the point-source value and Rh Lα to about 0.7. A model without it reads the extra absorption as a longer air path when you fit the air distance.
+
+The **Distance calculator** in the same section lists, for Al, Si, S, Rh L, Ar and Fe lines, the on-axis air transmission, the spot-averaged factor, the weight of the spot edge against its centre, and the gain in detected rate if the detector moves to another distance (with the spot, and for a point source). It assumes the sample is flat, uniformly emitting and faces the detector; it does not include dead time.
+
 ## Calibrating the air path
 
 When the detector looks at the sample through air (soft lines such as Al-K and Si-K at low kV), the distance matters a lot: 30 mm of air passes about 1.2 % of Al-K and 6 % of Si-K, so a 1 mm error changes the Al signal by roughly 16 %. Tick **Fit the air path** in the Matrix tab, give every amount of a standard that has two lines far apart in energy (kaolinite: Al-K and Si-K, Al/Si mass ratio about 0.96), and the effective distance is fitted together with K. The result shows start value, fitted value and uncertainty; **Use this air path** copies it into the detector settings. Shell: set `matrix` key `fit_air` true in the JSON; result field `air_path`.
