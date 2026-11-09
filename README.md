@@ -20,6 +20,10 @@ Like PyMca's beam table, the excitation is a list with one energy per line: **en
 
 Not modelled: polarisation of the beam, and the sample, filter and detector efficiency terms that PyMca's fundamental-parameter fit applies to the incident spectrum.
 
+## Calibrating the air path
+
+When the detector looks at the sample through air (soft lines such as Al-K and Si-K at low kV), the distance matters a lot: 30 mm of air passes about 1.2 % of Al-K and 6 % of Si-K, so a 1 mm error changes the Al signal by roughly 16 %. Tick **Fit the air path** in the Matrix tab, give every amount of a standard that has two lines far apart in energy (kaolinite: Al-K and Si-K, Al/Si mass ratio about 0.96), and the effective distance is fitted together with K. The result shows start value, fitted value and uncertainty; **Use this air path** copies it into the detector settings. Shell: set `matrix` key `fit_air` true in the JSON; result field `air_path`.
+
 ## Calibrating the tube on a standard
 
 The simplified tube model has one free number that matters for elements just above the anode lines: the share of

@@ -58,7 +58,7 @@ class Shell(cmd.Cmd):
     def do_set(self, a):
         "set <name> <value>  - zero gain noise fano tail_frac beta step_frac esc_frac emin emax\n"\
         "                      snip_width snip_smooth poly_order e0 (single excitation keV; clears 'beam') |\n"\
-        "                      scatter_angle (deg) compton_broad (keV) |\n"\
+        "                      scatter_angle (deg) compton_broad (keV at 20 keV, scales with E) |\n"\
         "                      xs_source xraylib|krause | background snip|poly|snip+poly|none\n"\
         "                      sum_peaks on|off | free_ratios on|off"
         k, v = shlex.split(a)[:2]

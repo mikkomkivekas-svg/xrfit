@@ -161,7 +161,7 @@ class Config:
     matrix: dict = field(default_factory=dict)   # sample layers and geometry, see matrix.py (not used by fit())
     beam_filters: list = field(default_factory=list)  # filters between source and sample: {"material","density","thickness_um"}
     scatter_angle: float = 90.0  # scattering angle th (degrees)
-    compton_broad: float = 0.20  # extra Compton peak width, keV FWHM (added in quadrature to the detector width)
+    compton_broad: float = 0.20  # extra Compton peak width, keV FWHM at 20 keV (scales with energy; added in quadrature to the detector width)
 
     def to_json(self, path):
         json.dump(asdict(self), open(path, "w"), indent=2)
@@ -216,15 +216,16 @@ def design(cfg, p, ch):
     for name, lines in groups:
         cols.append(sum(w * peak(e, E, p, de) for E, w in lines))
         names.append(name); nonneg.append(True)
-    pc = dict(p, noise=math.hypot(p["noise"], p.get("compton_broad", 0.0)))
+    cb = p.get("compton_broad", 0.0)             # Doppler broadening of the Compton peak, FWHM at 20 keV, grows in proportion to E
+    pc = lambda E: dict(p, noise=math.hypot(p["noise"], cb * E / 20.0))
     # All scatter-flagged beam lines share ONE Rayleigh and ONE Compton amplitude, their relative sizes tied to the
     # beam weights (like the fluorescence lines of an element). One free amplitude per group keeps close lines such as
     # Rh Ka1/Ka2/Kb from competing with each other or with element peaks.
     sc = [t for t in scatter_energies(cfg) if e.min() - 1 < t[0] < e.max() + 1 or e.min() - 1 < t[1] < e.max() + 1]
     if sc:
         single = len(sc) == 1
-        for label, idx, pp in (("Rayleigh", 0, p), ("Compton", 1, pc)):
-            cols.append(sum(w * peak(e, t[idx], pp, de) for t in sc for w in [t[2]]))
+        for label, idx in (("Rayleigh", 0), ("Compton", 1)):
+            cols.append(sum(t[2] * peak(e, t[idx], p if idx == 0 else pc(t[1]), de) for t in sc))
             names.append(f"{label} {sc[0][0]:g}" if single else label); nonneg.append(True)
     if cfg.sum_peaks:
         main = [(n, max(l, key=lambda t: t[1])[0]) for n, l in groups]

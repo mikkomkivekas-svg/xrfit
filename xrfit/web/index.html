@@ -281,6 +281,8 @@ table.data tr:hover td { background: var(--surface-2); }
         </div>
         <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="mx-fitk"> Fit K from the data</label></div>
         <div class="row"><label class="chk"><input type="checkbox" id="mx-fitshare"> Fit the anode line share</label></div>
+        <div class="row"><label class="chk"><input type="checkbox" id="mx-fitair"> Fit the air path</label></div>
+        <p class="hint" style="margin:0 0 4px 24px">Calibrates the detector side: give every amount (no <b>?</b>) of a standard with two or more lines far apart in energy (kaolinite Al-K and Si-K), and the air distance is fitted together with K.</p>
         <p class="hint" id="mx-fitshare-hint" style="margin:0 0 4px 24px">Calibrates the tube on a standard: give every amount (no <b>?</b>), and K and the share of the anode K lines in the incident spectrum are fitted. Needs a spectrum generated from the X-ray tube.</p>
         <div class="row"><label class="chk"><input type="checkbox" id="mx-sec"> Include secondary excitation</label></div>
         <div id="layers"></div>
@@ -935,7 +937,7 @@ $("#n-layers").onchange = e => {
   renderLayers();
 };
 function syncMatrix() {
-  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-fitshare").checked = !!m.fit_line_share; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
+  const m = mx(); $("#mx-k").value = m.k ?? ""; $("#mx-fitk").checked = !!m.fit_k; $("#mx-fitshare").checked = !!m.fit_line_share; $("#mx-fitair").checked = !!m.fit_air; $("#mx-sec").checked = m.secondary !== false; $("#mx-k").disabled = false;
   $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out;
   const d = m.detector || (m.detector = { si_mm: 0.5, be_um: 0, air_mm: 0 }); $("#d-si").value = d.si_mm; $("#d-be").value = d.be_um; $("#d-air").value = d.air_mm;
   renderLayers(); renderDetFilters();
@@ -944,6 +946,7 @@ $("#mx-k").addEventListener("input", e => { mx().k = e.target.value; });
 $("#mx-fitk").onchange = e => { mx().fit_k = e.target.checked; };
 $("#mx-sec").onchange = e => { mx().secondary = e.target.checked; };
 $("#mx-fitshare").onchange = e => { mx().fit_line_share = e.target.checked; };
+$("#mx-fitair").onchange = e => { mx().fit_air = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
 for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
 $("#mx-run").onclick = async () => {
@@ -968,6 +971,10 @@ async function useLineShare(frac) {
     setBeamRows(d.beam, `Incident spectrum regenerated with ${pct} % anode lines. Fit the spectrum again.`);
   } catch (e) { setStatus(e.message, true); }
 }
+function useAirPath(mm) {
+  const m = mx(); m.detector.air_mm = +mm.toFixed(1); m.fit_air = false; syncMatrix();
+  setStatus(`Air path set to ${m.detector.air_mm} mm. Calculate again.`);
+}
 function renderMatrixPane() {
   const p = $("#pane-matrix"); p.replaceChildren(); const r = S.matrixResult;
   if (!r) { p.append(h("p", { class: "hint", style: "margin:0", text: "Describe the layers under Sample matrix, fit the spectrum, then press Calculate composition." })); return; }
@@ -978,6 +985,9 @@ function renderMatrixPane() {
     r.line_share ? h("div", {}, h("span", { class: "lbl", text: "Anode line share" }), h("span", { class: "big num", text: (r.line_share.fitted * 100).toFixed(1) + " %" }),
       r.line_share.sigma != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + (r.line_share.sigma * 100).toFixed(1) }) : null,
       h("button", { class: "btn quiet", style: "margin-left:6px", title: "Regenerate the incident spectrum from the tube panel with this share of anode K lines, and stop fitting it", onclick: () => useLineShare(r.line_share.fitted) }, "Use this share")) : null,
+    r.air_path ? h("div", {}, h("span", { class: "lbl", text: "Air path" }), h("span", { class: "big num", text: r.air_path.fitted_mm.toFixed(1) + " mm" }),
+      r.air_path.sigma_mm != null ? h("span", { class: "num", style: "color:var(--text-3);margin-left:6px", text: "± " + r.air_path.sigma_mm.toFixed(1) }) : null,
+      h("button", { class: "btn quiet", style: "margin-left:6px", title: "Put this distance into the detector settings and stop fitting it", onclick: () => useAirPath(r.air_path.fitted_mm) }, "Use this air path")) : null,
     h("div", {}, h("span", { class: "lbl", text: "Fitted quantities" }), h("span", { class: "num", text: `${r.n_free} from ${r.n_data} line groups` })),
     r.chi2red != null ? h("div", {}, h("span", { class: "lbl", text: "Reduced χ²" }), h("span", { class: "num", text: r.chi2red.toFixed(2) })) : null));
   for (const L of r.layers) {

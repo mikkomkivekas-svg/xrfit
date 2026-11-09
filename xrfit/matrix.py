@@ -303,17 +303,22 @@ class Model:
         self.E_all = np.array(sorted(need))
         self.idx = {round(E, 9): i for i, E in enumerate(self.E_all)}
         self.mu = {s: attenuation.mu(s, self.E_all) for s in self.elems}
-        self.eff = {}
+        self._eff_fixed = {}        # everything except the air path, which can be fitted
+        self._mu_air = {}
         for El in self.E_all:
             e = 1.0
             if self.be_cm > 0:
                 e *= math.exp(-attenuation.mu("Be", El) * BE_RHO * self.be_cm)
-            if self.air_cm > 0:
-                mu_air = sum(w * attenuation.mu(s, El) for s, w in AIR.items())
-                e *= math.exp(-mu_air * AIR_RHO * self.air_cm)
             if self.si_cm > 0:
                 e *= 1 - math.exp(-attenuation.mu("Si", El) * SI_RHO * self.si_cm)
-            self.eff[round(El, 9)] = e * float(filter_transmission(self.det_filters, El)[0])
+            self._eff_fixed[round(El, 9)] = e * float(filter_transmission(self.det_filters, El)[0])
+            self._mu_air[round(El, 9)] = sum(w * attenuation.mu(s, El) for s, w in AIR.items()) * AIR_RHO
+        self.set_air(self.air_cm * 10)
+
+    def set_air(self, air_mm):
+        """Set the air path between sample and detector (mm) and update the detection efficiency."""
+        self.air_cm = float(air_mm) / 10
+        self.eff = {k: v * math.exp(-self._mu_air[k] * self.air_cm) for k, v in self._eff_fixed.items()}
 
     def _mu_layer(self, frac, E):
         i = [self.idx[round(x, 9)] for x in np.atleast_1d(E)]
@@ -485,6 +490,8 @@ def solve(mx, result, source=None):
         meas[name] = (a / result.live_time, s / result.live_time)
     model = Model(mx, list(meas), exc, source)
     fit_ls = bool(mx.get("fit_line_share"))
+    fit_air = bool(mx.get("fit_air"))
+    air0 = model.air_cm * 10
     model.wb0 = model.wb.copy()
     sc_E = {round(E, 6) for E, _, sc in core._beam_rows(cfg) if sc}
     sc_mask = np.array([round(float(E), 6) in sc_E for E in model.E0])
@@ -551,6 +558,8 @@ def solve(mx, result, source=None):
         P.append(("k",))
     if fit_ls:
         P.append(("s",))
+    if fit_air:
+        P.append(("air",))
     P += [("t", j) for j, L in enumerate(layers) if L["fit_t"]]
     if len(P) > len(used):
         raise MatrixError(f"{len(P)} quantities are to be determined but only {len(used)} line groups were fitted; "
@@ -590,6 +599,8 @@ def solve(mx, result, source=None):
                 mass.append(L["rho"] * t * 1e-4)
         K = math.exp(float(it[("k",)])) if ("k",) in it else k0
         f_sc = math.exp(float(it[("s",)])) if ("s",) in it else 1.0
+        if fit_air:
+            model.set_air(air0 * math.exp(float(it[("air",)])) if air0 > 0 else math.exp(float(it[("air",)])))
         # anode lines relative to the continuum; the tube beam stays normalised to 1 before the filters, so K keeps its meaning
         model.wb = model.wb0 * np.where(sc_mask, f_sc, 1.0) / ((1 - share0) + f_sc * share0)
         return fr, mass, K, pen
@@ -617,6 +628,8 @@ def solve(mx, result, source=None):
             lo[i], hi[i] = -60, 60; x[i] = math.log(k0) if k0 > 0 else 0.0
         elif p[0] == "s":
             lo[i], hi[i] = math.log(1e-3), math.log(1e3)
+        elif p[0] == "air":
+            lo[i], hi[i] = math.log(0.05), math.log(20.0)          # air path between 0.05 and 20 times the start value
         elif p[0] == "t":
             lo[i], hi[i] = math.log(1e-4), math.log(1e5); x[i] = math.log(max(layers[p[1]]["t_um"], 1e-3))
     idx = {p: i for i, p in enumerate(P)}
@@ -685,6 +698,8 @@ def solve(mx, result, source=None):
         if fit_ls:
             f_sc = math.exp(float(xx[idx[("s",)]]))
             o.append(f_sc * share0 / (f_sc * share0 + 1 - share0))
+        if fit_air:
+            o.append((air0 if air0 > 0 else 1.0) * math.exp(float(xx[idx[("air",)]])))
         return np.array(o)
     sig_out = None
     if len(P):
@@ -747,8 +762,10 @@ def solve(mx, result, source=None):
     groups = [{"name": n, "measured": used[n][0], "sigma": used[n][1], "predicted": K * pred[n],
                "ratio": (K * pred[n] / used[n][0]) if used[n][0] > 0 else None} for n in names]
     return _clean({"groups": groups, "layers": out_layers, "k": float(K), "k_fitted": k_fit,
-                            "k_sigma": float(sig_out[-2 if fit_ls else -1]) if sig_out is not None and k_fit else None,
-                            "line_share": ({"start": share0, "fitted": float(o[-1]), "sigma": float(sig_out[-1]) if sig_out is not None else None}
-                                           if fit_ls else None),
+                            "k_sigma": float(sig_out[-1 - fit_ls - fit_air]) if sig_out is not None and k_fit else None,
+                            "line_share": ({"start": share0, "fitted": float(o[-1 - fit_air]),
+                                            "sigma": float(sig_out[-1 - fit_air]) if sig_out is not None else None} if fit_ls else None),
+                            "air_path": ({"start_mm": air0, "fitted_mm": float(o[-1]), "sigma_mm": float(sig_out[-1]) if sig_out is not None else None}
+                                         if fit_air else None),
                             "chi2red": chi2red, "n_free": len(P), "n_data": len(names), "notes": notes,
                             "alpha_in": mx.get("alpha_in", 45), "alpha_out": mx.get("alpha_out", 45)})

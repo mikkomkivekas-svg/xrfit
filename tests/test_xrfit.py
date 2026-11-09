@@ -354,3 +354,19 @@ def test_tube_l_lines_at_low_voltage():
     # the beam works as an excitation and as a scatter source in the fit
     cfg = core.Config(beam=b)
     assert len(core.scatter_energies(cfg)) >= 4
+
+
+def test_air_path_fit_recovers_distance():
+    from types import SimpleNamespace as NS
+    from xrfit import core, matrix as M, tube
+    cfg = core.Config(beam=tube.tube_beam("Rh", 5.0, 30, 1.0, 0.1))
+    comp = "Al 20.9\nSi 21.7\nO 55.8\nH 1.6"
+    geo = {"alpha_in": 45, "alpha_out": 45, "secondary": False, "layers": [{"composition": comp, "density": 2.6}]}
+    def det(mm): return {"si_mm": 0.5, "be_um": 0, "air_mm": mm}
+    names = ["Al-K", "Si-K"]
+    truth = M.Model({**geo, "detector": det(27.0)}, names, core.excitation(cfg), "xraylib")
+    f = truth.predict([{"Al": .209, "Si": .217, "O": .558, "H": .016}], [float("inf")])
+    res = NS(cfg=cfg, live_time=100.0, areas={n: (1e5 * v * 100, 100.0) for n, v in f.items()})
+    mx = {**geo, "detector": det(30.0), "fit_k": True, "fit_air": True, "composition_known": True}
+    r = M.solve(mx, res)
+    assert abs(r["air_path"]["fitted_mm"] - 27.0) < 0.5 and r["air_path"]["start_mm"] == 30.0
