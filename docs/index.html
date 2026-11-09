@@ -1312,7 +1312,11 @@ async function openFile(file) {
   } catch (e) { setStatus(e.message, true); }
 }
 async function openExample(name) {
-  try { applySpectrum(await api("/api/example?name=" + name), true); } catch (e) { setStatus(e.message, true); }
+  try { applySpectrum(await api("/api/example?name=" + name), true); }
+  catch (e) {
+    const m = e.message === "Unknown example." ? "This page is running an older version of the program that does not have that example. Reload it with Ctrl+Shift+R." : e.message;
+    setStatus(m, true); $("#filemeta").replaceChildren(h("span", { style: "color:var(--danger)", role: "alert", text: m }));
+  }
 }
 $("#open").onclick = $("#empty-open").onclick = () => $("#file").click();
 $("#file").onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ""; };
