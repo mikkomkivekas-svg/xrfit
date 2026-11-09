@@ -229,6 +229,7 @@ table.data tr:hover td { background: var(--surface-2); }
     <button class="btn" id="open">Open spectrum</button>
     <input type="file" id="file" accept=".vspc,.csv,.mca,.txt,.dat,.json" hidden>
     <button class="btn quiet" id="ex-syn" title="A generated Fe, Cu, Zn and Pb spectrum with known amounts">Synthetic example</button>
+    <button class="btn quiet" id="ex-coat" title="Si-containing coating on a substrate: soft lines (Al, Si, S, Rh L, Ar) measured with a 5 kV Rh tube through 30 mm of air, with every fit setting filled in as a reference">Si coating, soft lines</button>
     <button class="btn quiet" id="ex-ket" title="NIST SRM 1157 tool steel measured with a KETEK detector and a Rh tube at 30 kV (high count rate, so sum peaks are visible)">SRM 1157 tool steel</button>
     <div class="filemeta" id="filemeta">No spectrum loaded</div>
     <button class="btn quiet" id="theme" title="Switch between automatic, light and dark">Theme: auto</button>
@@ -1317,6 +1318,7 @@ $("#open").onclick = $("#empty-open").onclick = () => $("#file").click();
 $("#file").onchange = e => { if (e.target.files[0]) openFile(e.target.files[0]); e.target.value = ""; };
 $("#ex-syn").onclick = $("#empty-syn").onclick = () => openExample("synthetic");
 $("#ex-ket").onclick = () => openExample("srm1157");
+$("#ex-coat").onclick = () => openExample("coated");
 let dragDepth = 0;
 addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragDepth++; $("#drop").hidden = false; } });
 addEventListener("dragleave", () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("#drop").hidden = true; });

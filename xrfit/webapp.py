@@ -316,6 +316,30 @@ def api_example(body, query):
                                    "reference": "C 0.836\nMn 0.34\nP 0.011\nS 0.004\nSi 0.18\nCu 0.088\nNi 0.228\nCr 4.36\nV 1.82\nMo 4.86\nW 6.28\nCo 0.028\nFe balance"}],
                        "alpha_in": 90.0, "alpha_out": 43.0, "k": "", "fit_k": True, "secondary": True,
                        "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 0, "filters": []}}})
+    if name == "coated":
+        spec = core.load_spectrum(os.path.join(DATA_DIR, "example_coated.vspc"))
+        spec.name = "si-coated-substrate-soft-lines.vspc"
+        # Soft-line reference fit: Si-containing coating on a substrate, 5 kV Rh tube, 30 mm of air, KETEK AXAS
+        # (H50 sensor, CH window), 600 ns peaking time, 57 % dead time, 10 s. The file says "uncalibrated"
+        # (5 eV per channel); the Si K, Rh L and Ar K peaks put the energy scale at 4.870 eV per channel and zero at 0.
+        return set_spectrum(spec, {
+            # Sample lines, then the tube's Rh L lines (instrument, not sample). Al is listed although this sample has
+            # none (it is fitted as zero); with Al in the sample, the Ar K-beta escape peak at 1.45 keV lies 36 eV below Al K-alpha.
+            # The Ar K group from the 30 mm of air is added by the fit itself (argon: auto) as one tied K-alpha + K-beta group.
+            "elements": ["Al-K", "Si-K", "S-K", "Rh-La1", "Rh-Lb1"], "instrument": ["Rh-La1", "Rh-Lb1"],
+            # Alpha and beta lines are fitted separately (default). No incident spectrum table: at 5 kV the Rh L scatter
+            # peaks lie within 15 eV of the Rh L fluorescence lines and cannot be separated, so the Rh L lines are fitted as lines.
+            "e0": 5.0, "zero": 0.0, "gain": 0.00487, "emin": 0.8, "emax": 3.5,
+            "noise": 0.047, "fano": 0.122, "tail_frac": 0.0, "step_frac": 0.0,
+            # Si escape peaks: calculated ratio (1.1 % at Rh L) times a fitted scale of about 1.1; long low-energy tail under the strong lines.
+            "esc_frac": 0.0, "esc_scale": 1.13, "tail2_frac": 0.028, "beta2": 0.48,
+            "free": ["zero", "gain", "noise", "fano", "esc_scale", "tail2_frac", "beta2"],
+            "background": "snip", "snip_width": 24, "sum_peaks": False,
+            "matrix": {"layers": [{"name": "", "composition": "", "density": "", "thickness_um": "", "fit_thickness": False, "reference": ""}],
+                       "alpha_in": 45.0, "alpha_out": 45.0, "k": "", "fit_k": True, "secondary": True,
+                       # Detector side: 0.5 mm Si, 30 mm of air to the window (this sets the automatic Ar K group), 40 mm spot averaged
+                       # over the solid angle and the slanted air path. The CH window is not entered: add it under Filters before the detector.
+                       "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 30, "spot_mm": 40, "spot_profile": "uniform", "filters": []}}})
     raise ApiError("Unknown example.", 404)
 
 

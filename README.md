@@ -134,6 +134,10 @@ Enable it once under **Settings → Pages → Deploy from a branch → `main` / 
 - Quantification: against a standard (`calibrate`/`quantify`) or from theory (`quantify theory`, relative atomic
   amounts = net rate / production cross section at `e0`; thin sample, no detector/matrix correction)
 
+## Soft-line example
+
+The **Si coating, soft lines** button loads a KETEK spectrum of a Si-containing coating on a substrate (5 kV Rh tube, 30 mm of air, 600 ns peaking time) with every setting filled in, as a reference for similar data: energy calibration (gain 0.00487 keV/channel from the Si K, Rh L and Ar K peaks, since the file calls itself uncalibrated), resolution (noise and Fano free), Si escape scale and long tail free, alpha and beta lines separate, the Rh L lines marked as instrument lines, the 30 mm air path and 40 mm spot in the detector section, and the Ar K group added automatically. The fit gives a reduced χ² of about 8.
+
 ## Input formats
 - KETEK `.vspc` (JSON; `examples/srm1157_tool_steel.vspc` is a real export (SRM 1157 tool steel, Rh tube at 30 kV) with the serial numbers redacted: `RawData`, `Calibration`, `Configuration.Parameters`, `MeasurementInfo`) - checked against a VICO-Scope export;
   live time and keV/bin are taken from the file. Also the `Channel,RawData` CSV export, Amptek .mca, plain text.

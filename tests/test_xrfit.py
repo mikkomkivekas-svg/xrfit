@@ -453,3 +453,16 @@ def test_defaults_free_escape_scale_and_separate_alpha_beta():
     from xrfit import core
     c = core.Config()
     assert c.free_ratios is True and "esc_scale" in c.free
+
+
+def test_coated_soft_line_example_is_prefilled_and_fits():
+    import json
+    from xrfit import webapp
+    status, _, body, _ = webapp.dispatch("GET", "/api/example?name=coated", {}, b"")
+    d = json.loads(body)
+    assert status == 200 and "REDACTED" in json.dumps(d["meta"]) and "5894A2002DB0" not in json.dumps(d["meta"])
+    sug = d["suggest"]
+    assert sug["gain"] == 0.00487 and "esc_scale" in sug["free"] and sug["matrix"]["detector"]["air_mm"] == 30
+    r = webapp.api_fit({"config": sug}, None)
+    names = {a["name"]: a for a in r["areas"]}
+    assert r["chi2red"] < 10 and names["Ar-K"]["instrument"] and names["Si-Ka"]["counts"] > 40000 and "Ar-Ka" not in names
