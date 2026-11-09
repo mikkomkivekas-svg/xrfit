@@ -435,3 +435,13 @@ def test_beam_spot_changes_fitted_air_path():
         return M.solve(mx, res)["air_path"]["fitted_mm"]
     assert abs(fit(40) - 27.0) < 0.5
     assert fit(0) > 28.0          # a point-source model reads the extra slanted-path absorption as a longer air gap
+
+
+def test_air_argon_added_automatically():
+    from xrfit import core
+    cfg = core.Config(elements=["Si-K"], matrix={"detector": {"air_mm": 30}})
+    assert core.fit_elements(cfg) == ["Si-K", "Ar-K"] and "Ar-K" in core.instrument_groups(cfg)
+    assert core.fit_elements(core.Config(elements=["Si-K"])) == ["Si-K"]                       # no air path set: unchanged
+    assert core.fit_elements(core.Config(elements=["Si-K"], argon="on")) == ["Si-K", "Ar-K"]
+    assert core.fit_elements(core.Config(elements=["Si-K"], argon="off", matrix={"detector": {"air_mm": 30}})) == ["Si-K"]
+    assert core.fit_elements(core.Config(elements=["Si-K", "Ar"], matrix={"detector": {"air_mm": 30}})) == ["Si-K", "Ar"]   # the user's own Ar wins

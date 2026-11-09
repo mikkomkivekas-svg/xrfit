@@ -163,6 +163,10 @@ def cfg_from_json(d):
             if v not in BACKGROUNDS:
                 raise ApiError(f"background must be one of {', '.join(BACKGROUNDS)}")
             cfg.background = v
+        elif k == "argon":
+            if v not in ("auto", "on", "off"):
+                raise ApiError("argon must be auto, on or off")
+            cfg.argon = v
         elif k == "xs_source":
             if v not in SOURCES:
                 raise ApiError("cross-section source must be xraylib or krause")

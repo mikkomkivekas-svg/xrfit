@@ -190,6 +190,7 @@ class Config:
     matrix: dict = field(default_factory=dict)   # sample layers and geometry, see matrix.py (not used by fit())
     beam_filters: list = field(default_factory=list)  # filters between source and sample: {"material","density","thickness_um"}
     scatter_angle: float = 90.0  # scattering angle th (degrees)
+    argon: str = "auto"         # Ar-K from the air between sample and detector: auto (when matrix detector.air_mm > 0) | on | off
     compton_broad: float = 0.20  # extra Compton peak width, keV FWHM at 20 keV (scales with energy; added in quadrature to the detector width)
 
     def to_json(self, path):
@@ -237,10 +238,29 @@ def scatter_energies(cfg):
     return [(Er, Ec, w / tot) for Er, Ec, w in out]
 
 
+def air_argon(cfg):
+    """True when an Ar-K group for the argon in air is fitted automatically (the user has not added one)."""
+    mode = getattr(cfg, "argon", "auto")
+    if mode == "off" or any(str(t).split("-")[0] == "Ar" for t in cfg.elements):
+        return False
+    if mode == "on":
+        return True
+    det = (cfg.matrix or {}).get("detector") or {}
+    try:
+        return float(det.get("air_mm") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def fit_elements(cfg):
+    """Element tokens that are fitted: the user's list plus Ar-K when there is air in the path."""
+    return list(cfg.elements) + (["Ar-K"] if air_argon(cfg) else [])
+
+
 def design(cfg, p, ch):
     e = p["zero"] + p["gain"] * ch
     de = p["gain"]
-    groups = build_groups(cfg.elements, cfg.free_ratios, excitation(cfg), cfg.xs_source)
+    groups = build_groups(fit_elements(cfg), cfg.free_ratios, excitation(cfg), cfg.xs_source)
     cols, names, nonneg = [], [], []
     for name, lines in groups:
         cols.append(sum(w * peak(e, E, p, de) for E, w in lines))
@@ -391,7 +411,7 @@ def quantify(result, sens, normalize=False):
 def instrument_groups(cfg):
     """Names of the fitted line groups that come from the instrument (tube, air), not from the sample."""
     out = set()
-    for tok in cfg.instrument:
+    for tok in list(cfg.instrument) + (["Ar-K"] if air_argon(cfg) else []):
         try:
             out.update(n for n, _ in _lines.build_groups([tok], cfg.free_ratios, excitation(cfg), cfg.xs_source))
         except (KeyError, ValueError):

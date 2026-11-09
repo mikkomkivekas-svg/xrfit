@@ -327,6 +327,9 @@ table.data tr:hover td { background: var(--surface-2); }
         <p class="hint" id="el-hint">An element picks K or L lines from what the incident spectrum reaches. Write <b>Pb-L</b> for a shell or <b>Pb-La2</b> for one line.</p>
         <div class="row" style="margin-top:10px"><label class="chk"><input type="checkbox" id="free-ratios"> Fit α, β and γ lines separately</label></div>
         <div class="row"><label class="chk"><input type="checkbox" id="sum-peaks"> Add sum (pile-up) peaks</label></div>
+        <div class="row" style="margin-top:6px"><label for="argon">Argon from air</label>
+          <select id="argon" style="width:auto"><option value="auto">Fit when an air path is set</option><option value="on">Always fit</option><option value="off">Never</option></select></div>
+        <p class="hint">The argon in the air between sample and detector is excited by the beam and always shows Ar Kα at 2.96 keV. It is fitted as an instrument line and left out of the sample. The air path is set under Sample matrix → Detector and path.</p>
       </section>
 
       <section class="blk">
@@ -432,7 +435,7 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const newLayer = () => ({ name: "", composition: "", density: "", thickness_um: "", fit_thickness: false, reference: "" });
 const defaultMatrix = () => ({ layers: [newLayer()], alpha_in: 45, alpha_out: 45, k: "", fit_k: true, secondary: true, detector: { si_mm: 0.5, be_um: 0, air_mm: 0, filters: [] } });
 const DEFAULT_CFG = () => ({
-  elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0, esc_scale: 1, tail2_frac: 0, beta2: 0.6,
+  elements: [], instrument: [], zero: 0, gain: 0.01, noise: 0.10, fano: 0.114, tail_frac: 0, beta: 0.10, step_frac: 0, esc_frac: 0, esc_scale: 1, tail2_frac: 0, beta2: 0.6, argon: "auto",
   free: ["zero", "gain", "noise"], emin: 0, emax: null, background: "snip", snip_width: 24, snip_smooth: 5, poly_order: 2,
   sum_peaks: false, free_ratios: false, e0: 20, xs_source: "xraylib",
   beam: [{ energy: 20, weight: 1, use: true, scatter: false }], scatter_angle: 90, compton_broad: 0.2,
@@ -885,11 +888,12 @@ $("#xs").onchange = e => { S.cfg.xs_source = e.target.value; scheduleGroups(); m
 $("#bg").onchange = e => { S.cfg.background = e.target.value; syncBg(); markStale(); };
 $("#free-ratios").onchange = e => { S.cfg.free_ratios = e.target.checked; scheduleGroups(); markStale(); };
 $("#sum-peaks").onchange = e => { S.cfg.sum_peaks = e.target.checked; markStale(); };
+$("#argon").onchange = e => { S.cfg.argon = e.target.value; markStale(); };
 function syncBg() { const b = S.cfg.background; $("#f-snipw").hidden = $("#f-snips").hidden = !b.includes("snip"); $("#f-poly").hidden = !b.includes("poly"); }
 function syncInputs() {
   const c = S.cfg; syncE0(); $("#angle").value = c.scatter_angle; $("#xs").value = c.xs_source; $("#bg").value = c.background;
   $("#snipw").value = c.snip_width; $("#snips").value = c.snip_smooth; $("#poly").value = c.poly_order;
-  $("#emin").value = c.emin; $("#emax").value = c.emax ?? ""; $("#free-ratios").checked = c.free_ratios; $("#sum-peaks").checked = c.sum_peaks;
+  $("#emin").value = c.emin; $("#emax").value = c.emax ?? ""; $("#free-ratios").checked = c.free_ratios; $("#sum-peaks").checked = c.sum_peaks; $("#argon").value = c.argon || "auto";
   syncBg(); renderBeam(); renderBeamFilters(); syncMatrix(); renderParams(); renderChips();
 }
 $("#view-region").onclick = () => { if (!S.view) return; S.cfg.emin = +Math.max(0, S.view.x0).toFixed(3); S.cfg.emax = +S.view.x1.toFixed(3); $("#emin").value = S.cfg.emin; $("#emax").value = S.cfg.emax; markStale(); plot.draw(); };
@@ -961,7 +965,7 @@ $("#mx-sec").onchange = e => { mx().secondary = e.target.checked; };
 $("#mx-fitshare").onchange = e => { mx().fit_line_share = e.target.checked; };
 $("#mx-fitair").onchange = e => { mx().fit_air = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
-for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"], ["d-spot", "spot_mm"], ["d-prof", "spot_profile"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; });
+for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"], ["d-spot", "spot_mm"], ["d-prof", "spot_profile"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; if (key === "air_mm") markStale(); });
 $("#sp-run").onclick = async () => {
   const out = $("#sp-out"), d = mx().detector;
   try {

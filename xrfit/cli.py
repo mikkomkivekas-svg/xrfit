@@ -60,7 +60,8 @@ class Shell(cmd.Cmd):
         "                      snip_width snip_smooth poly_order e0 (single excitation keV; clears 'beam') |\n"\
         "                      scatter_angle (deg) compton_broad (keV at 20 keV, scales with E) |\n"\
         "                      xs_source xraylib|krause | background snip|poly|snip+poly|none\n"\
-        "                      sum_peaks on|off | free_ratios on|off"
+        "                      sum_peaks on|off | free_ratios on|off |\n"\
+        "                      argon auto|on|off  (fit Ar-K from the air path; auto = when matrix air path > 0)"
         k, v = shlex.split(a)[:2]
         if k in CFG_KEYS:
             if k == "e0":
@@ -71,6 +72,9 @@ class Shell(cmd.Cmd):
         elif k == "xs_source":
             if v not in ("xraylib", "krause"): raise ValueError("xs_source is xraylib or krause")
             self.cfg.xs_source = v
+        elif k == "argon":
+            if v not in ("auto", "on", "off"): raise ValueError("argon is auto, on or off")
+            self.cfg.argon = v
         elif k in ("sum_peaks", "free_ratios"):
             setattr(self.cfg, k, v.lower() in ("1", "on", "true", "yes"))
         else:

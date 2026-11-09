@@ -69,6 +69,8 @@ and marked **not sample** on their chip (`instrument` in the settings). They kee
 share and the matrix calculation ignores them. The K lines of the anode work differently: scatter-flagged rows of the
 incident spectrum are fitted as one Rayleigh and one Compton peak.
 
+**Argon from the air** is added automatically. When an air path is set (Sample matrix → Detector and path, or `matrix.detector.air_mm`), the fit includes an `Ar-K` group marked as an instrument line, unless you have already added an Ar token yourself. The select **Argon from air** in the Elements panel (`argon` in the settings, `set argon auto|on|off` in the shell) changes this: `on` fits it even with no air path entered, `off` leaves it out. Its escape peaks follow from the calculated Si escape ratio. The Ar Kβ escape peak at 1.45 keV is the small bump you see between the Si Kα peak and the Ar Kα escape peak at 1.22 keV.
+
 ## Filters
 
 Both lists use the same tabulated attenuation data as the matrix model (Elam, Ravel and Sieber, via XrayDB) and
