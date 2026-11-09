@@ -333,10 +333,12 @@ def api_example(body, query):
             # peaks lie within 15 eV of the Rh L fluorescence lines and cannot be separated, so the Rh L lines are fitted as lines.
             "e0": 5.0, "zero": 0.0, "gain": 0.00487, "emin": 0.8, "emax": 3.5,
             "noise": 0.047, "fano": 0.122, "tail_frac": 0.0, "step_frac": 0.0,
-            # Si escape peaks: calculated ratio (1.1 % at Rh L) times a fitted scale of about 1.1; long low-energy tail under the strong lines.
-            "esc_frac": 0.0, "esc_scale": 1.13, "tail2_frac": 0.028, "beta2": 0.48,
-            "free": ["zero", "gain", "noise", "fano", "esc_scale", "tail2_frac", "beta2"],
-            "background": "snip", "snip_width": 24, "sum_peaks": False,
+            # Si escape peaks: calculated ratio (1.1 % at Rh L) times a fitted scale of about 1.1.
+            # No long tail: it is added on top of a SNIP curve that already follows the shelf, which lifts the baseline under
+            # Al K by 30-50 counts and halves the Al area. SNIP plus a cubic polynomial takes the broad shelf instead.
+            "esc_frac": 0.0, "esc_scale": 1.13, "tail2_frac": 0.0, "beta2": 0.5,
+            "free": ["zero", "gain", "noise", "fano", "esc_scale"],
+            "background": "snip+poly", "poly_order": 3, "snip_width": 24, "sum_peaks": False,
             "matrix": {"layers": [{"name": "", "composition": "", "density": "", "thickness_um": "", "fit_thickness": False, "reference": ""}],
                        "alpha_in": 45.0, "alpha_out": 45.0, "k": "", "fit_k": True, "secondary": True,
                        # Detector side: 0.5 mm Si, 30 mm of air to the window (this sets the automatic Ar K group), 40 mm spot averaged
