@@ -74,7 +74,7 @@ class TestGroups(unittest.TestCase):
 class TestFitAndQuant(unittest.TestCase):
     def test_recovery_and_theory_quantification(self):
         rng = np.random.default_rng(7)
-        cfg = core.Config(elements=["Fe", "Cu", "Pb-L"], free_ratios=False, zero=0.02, gain=0.01, noise=0.12, e0=20.0)
+        cfg = core.Config(elements=["Fe", "Cu", "Pb-L"], free_ratios=False, background="snip", poly_order=2, zero=0.02, gain=0.01, noise=0.12, e0=20.0)
         ch = np.arange(2048.0)
         A, names, _ = core.design(cfg, cfg.params(), ch)
         live = 100.0
@@ -83,7 +83,7 @@ class TestFitAndQuant(unittest.TestCase):
         e = cfg.zero + cfg.gain * ch
         y = rng.poisson(A @ amp + 120 * np.exp(-e / 6) + 3)
         spec = core.Spectrum(y.astype(float), "synthetic", live_time=live)
-        cfg2 = core.Config(elements=cfg.elements, free_ratios=False, zero=0.0, gain=0.0099, noise=0.11, emin=1.5, emax=18, e0=20.0)
+        cfg2 = core.Config(elements=cfg.elements, free_ratios=False, background="snip", poly_order=2, zero=0.0, gain=0.0099, noise=0.11, emin=1.5, emax=18, e0=20.0)
         res = core.fit(spec, cfg2)
         for k, a in zip(names, amp):
             self.assertAlmostEqual(res.areas[k][0] / a, 1.0, delta=0.05, msg=k)
@@ -94,7 +94,7 @@ class TestFitAndQuant(unittest.TestCase):
 
     def test_unexcited_group_flagged(self):
         r = core.fit(core.Spectrum(np.random.default_rng(1).poisson(50, 2048).astype(float)),
-                     core.Config(elements=["Cu-K"], free_ratios=False, emin=6, emax=12, gain=0.01))
+                     core.Config(elements=["Cu-K"], free_ratios=False, background="snip", poly_order=2, emin=6, emax=12, gain=0.01))
         q = core.quantify_theory(r, e0=5.0)      # 5 keV is below the Cu K edge
         self.assertTrue(math.isnan(q["Cu-K"][0]))
 
@@ -300,7 +300,7 @@ def test_srm1157_example_is_fully_prefilled():
 def test_instrument_lines_stay_out_of_the_sample():
     from types import SimpleNamespace as NS
     from xrfit import core, matrix as M
-    cfg = core.Config(elements=["Fe", "Rh-L"], free_ratios=False, instrument=["Rh-L"], beam=[{"energy": 17.44, "weight": 1.0}])
+    cfg = core.Config(elements=["Fe", "Rh-L"], free_ratios=False, background="snip", poly_order=2, instrument=["Rh-L"], beam=[{"energy": 17.44, "weight": 1.0}])
     res = NS(cfg=cfg, live_time=100.0, xs_source="xraylib", areas={"Fe-K": (1e6, 1e3), "Rh-L": (5e4, 300.0)})
     assert core.instrument_groups(cfg) == {"Rh-L"}
     q = core.quantify_theory(res)
@@ -314,7 +314,7 @@ def test_line_share_fit_and_reference_values():
     from types import SimpleNamespace as NS
     from xrfit import core, matrix as M, tube
     def cfg_with(share):
-        return core.Config(free_ratios=False, beam=tube.tube_beam("Rh", 30.0, 12, 1.5, share), beam_filters=[{"material": "Be", "density": "", "thickness_um": 50}])
+        return core.Config(free_ratios=False, background="snip", poly_order=2, beam=tube.tube_beam("Rh", 30.0, 12, 1.5, share), beam_filters=[{"material": "Be", "density": "", "thickness_um": 50}])
     names = ["Cr-K", "Fe-K", "Mo-K", "W-L"]
     geo = {"alpha_in": 90, "alpha_out": 43, "secondary": False}
     truth = {"layers": [{"composition": "Fe 84\nCr 4.5\nMo 5\nW 6.5", "density": 7.9}], **geo}

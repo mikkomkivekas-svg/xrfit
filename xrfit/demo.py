@@ -8,7 +8,7 @@ TRUE_AREAS = {"Fe-K": 40000.0, "Cu-K": 15000.0, "Zn-K": 8000.0, "Pb-L": 5000.0}
 
 
 def synthetic_spectrum(seed=1):
-    cfg = core.Config(elements=["Fe", "Cu", "Zn", "Pb-L"], free_ratios=False, zero=0.02, gain=0.01, noise=0.12,
+    cfg = core.Config(elements=["Fe", "Cu", "Zn", "Pb-L"], free_ratios=False, background="snip", poly_order=2, zero=0.02, gain=0.01, noise=0.12,
                       tail_frac=0.05, esc_frac=0.01)
     ch = np.arange(2048.0)
     p = cfg.params()
@@ -25,5 +25,5 @@ def synthetic_spectrum(seed=1):
     return core.Spectrum(y.astype(float), "synthetic-example.txt", live_time=100.0, calib=None, meta=meta)
 
 
-SUGGEST = {"elements": ["Fe", "Cu", "Zn", "Pb-L"], "free_ratios": False, "zero": 0.0, "gain": 0.0098, "emin": 1.5, "emax": 18.0,
+SUGGEST = {"elements": ["Fe", "Cu", "Zn", "Pb-L"], "free_ratios": False, "background": "snip", "poly_order": 2, "zero": 0.0, "gain": 0.0098, "emin": 1.5, "emax": 18.0,
            "free": ["zero", "gain", "noise", "tail_frac", "esc_frac"], "tail_frac": 0.03, "esc_frac": 0.005}

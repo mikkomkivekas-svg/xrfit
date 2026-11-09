@@ -24,7 +24,7 @@ Not modelled: polarisation of the beam, and the sample, filter and detector effi
 
 The Si escape peak is calculated for every line above the Si K edge (Reed and Ware: Si fluorescence yield, jump ratio and Kα share, with the Si attenuation at the line and at Si Kα). The escape ratio is 1.2 % at Rh Lα, 1.1 % at Ar Kα and 0.3 % at Fe Kα. **Si escape scale** (`esc_scale`, default 1) multiplies it and can be fitted to correct for the real crystal and dead layer; **Extra escape fraction** (`esc_frac`) adds a constant ratio on top.
 
-Strong soft lines (Rh L, Ar K) sit on a low-energy shelf. **Long tail fraction / length** (`tail2_frac`, `beta2`) add a second, long exponential tail next to the short one, so the shelf does not have to be absorbed by the short tail or by an unphysical Kβ amplitude. On a 5 kV kaolinite spectrum (600 ns peaking time) the calculated escape gives a fitted scale of 1.1–1.2 and the long tail takes χ² from 12 to 8.
+Strong soft lines (Rh L, Ar K) sit on a low-energy shelf. By default the shelf is taken by the background, **SNIP plus a cubic polynomial**, and the long tail is off. **Long tail fraction / length** (`tail2_frac`, `beta2`) are an option that adds a second, long exponential tail next to the short one. Use it with care: it is added on top of a SNIP curve that already follows the shelf, so it counts the shelf twice. On a 5 kV kaolinite spectrum it lifted the baseline under Al Kα by 30–50 counts and halved the Al area, and it made the resolution parameters drift when it was switched off without a flexible background. On a 5 kV kaolinite spectrum (600 ns peaking time) the calculated escape gives a fitted scale of 1.1–1.2.
 
 ## Calibration tab
 

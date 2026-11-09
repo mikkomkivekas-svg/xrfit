@@ -175,10 +175,10 @@ class Config:
     free: list = field(default_factory=lambda: ["zero", "gain", "noise", "esc_scale"])
     emin: float = 0.0
     emax: float = 1e9
-    background: str = "snip"    # snip | poly | snip+poly | none
+    background: str = "snip+poly"  # snip | poly | snip+poly | none (SNIP plus a cubic polynomial takes broad shelves without a long tail)
     snip_width: int = 24
     snip_smooth: int = 5
-    poly_order: int = 2
+    poly_order: int = 3
     sum_peaks: bool = False
     free_ratios: bool = True    # fit alpha, beta and gamma lines of a shell as separate groups
     e0: float = 20.0            # excitation energy (keV): sets L-line weights and theory quantification
