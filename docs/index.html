@@ -256,7 +256,7 @@ table.data tr:hover td { background: var(--surface-2); }
             <div class="field"><label for="tube-anode">Anode</label><input type="text" id="tube-anode" list="el-list" value="Rh" autocomplete="off" spellcheck="false"></div>
             <div class="field"><label for="tube-kv">Voltage (kV)</label><input type="number" id="tube-kv" value="40" min="2" max="450" step="any"></div>
             <div class="field"><label for="tube-bins">Continuum steps</label><input type="number" id="tube-bins" value="24" min="3" max="200" step="1"></div>
-            <div class="field"><label for="tube-share">Anode lines (% of photons)</label><input type="number" id="tube-share" value="25" min="0" max="95" step="1"></div>
+            <div class="field"><label for="tube-share" title="K lines above the anode K edge, L lines below it (a 5 kV Rh tube has only L lines)">Anode lines (% of photons)</label><input type="number" id="tube-share" value="25" min="0" max="95" step="1"></div>
           </div>
           <div class="row" style="margin-top:8px"><button class="btn" id="tube-fill">Generate list</button></div>
           <p class="hint">Simplified model: Kramers continuum plus the anode K lines (none if the voltage is below the anode's K edge, as for W under 69.5 kV), with no window or filter absorption. For an exact spectrum, compute it elsewhere and load it from a file.</p>
@@ -309,7 +309,7 @@ table.data tr:hover td { background: var(--surface-2); }
           <button class="btn" id="el-add">Add</button>
         </div>
         <datalist id="el-list"></datalist>
-        <datalist id="flt-list"><option value="Al"><option value="Ti"><option value="Cu"><option value="Zr"><option value="Mo"><option value="Rh"><option value="Ag"><option value="Be"><option value="Kapton"><option value="Mylar"><option value="Polypropylene"></datalist>
+        <datalist id="flt-list"><option value="Al"><option value="Ti"><option value="Cu"><option value="Zr"><option value="Mo"><option value="Rh"><option value="Ag"><option value="Be"><option value="Graphene"><option value="Kapton"><option value="Mylar"><option value="Polypropylene"></datalist>
         <div class="err" id="el-err" role="alert" hidden></div>
         <div class="chips" id="chips"></div>
         <p class="hint" id="el-hint">An element picks K or L lines from what the incident spectrum reaches. Write <b>Pb-L</b> for a shell or <b>Pb-La2</b> for one line.</p>
@@ -778,7 +778,7 @@ function bindNum(id, key, { nullable = false, after } = {}) {
 bindNum("snipw", "snip_width"); bindNum("snips", "snip_smooth"); bindNum("poly", "poly_order");
 bindNum("emin", "emin"); bindNum("emax", "emax", { nullable: true });
 /* ---------- filters (beam and detector) ---------- */
-const FLT_PRESETS = ["Al", "Ti", "Cu", "Zr", "Mo", "Rh", "Ag", "Be", "Kapton", "Mylar", "Polypropylene"];
+const FLT_PRESETS = ["Al", "Ti", "Cu", "Zr", "Mo", "Rh", "Ag", "Be", "Graphene", "Kapton", "Mylar", "Polypropylene"];
 const filterTimers = {};
 function renderFilters(hostId, arr, onchange, energies) {
   const host = $("#" + hostId); host.replaceChildren();

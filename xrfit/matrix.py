@@ -159,7 +159,7 @@ def parse_composition(text):
 # ------------------------------------------------------------------ filters
 FILTER_PRESETS = {      # name -> (composition text, density g/cm3)
     "Al": ("Al", 2.70), "Ti": ("Ti", 4.51), "Cu": ("Cu", 8.96), "Zr": ("Zr", 6.51), "Mo": ("Mo", 10.22),
-    "Rh": ("Rh", 12.41), "Ag": ("Ag", 10.49), "Be": ("Be", 1.848),
+    "Rh": ("Rh", 12.41), "Ag": ("Ag", 10.49), "Be": ("Be", 1.848), "Graphene": ("C", 2.2),
     "Kapton": ("C22H10N2O5", 1.42), "Mylar": ("C10H8O4", 1.38), "Polypropylene": ("C3H6", 0.90),
 }
 

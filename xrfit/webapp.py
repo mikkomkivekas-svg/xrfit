@@ -343,7 +343,8 @@ def api_filters(body, query):
 def api_tube(body, query):
     try:
         rows = tube.tube_beam(str(body.get("anode", "Rh")), float(body.get("kv", 40)), int(body.get("bins", 24)),
-                              float(body.get("emin", 1.5)), float(body.get("line_share", 0.25)))
+                              float(body.get("emin", 1.5)), float(body.get("line_share", 0.25)),
+                              None if body.get("l_share") in (None, "") else float(body.get("l_share")))
     except (KeyError, ValueError, TypeError) as e:
         raise ApiError(msg(e)) from e
     for r in rows:

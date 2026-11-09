@@ -80,7 +80,7 @@ class Shell(cmd.Cmd):
         "beam                      show the incident spectrum (energy, weight, scatter)\n"\
         "beam add E [W] [scatter]  add an energy (keV), relative weight (default 1), optional scatter flag\n"\
         "beam load <file>          read energy [weight [scatter]] lines from a text file (replaces the table)\n"\
-        "beam tube <anode> <kV> [steps] [line%]  simplified tube spectrum (Kramers + anode K lines)\n"\
+        "beam tube <anode> <kV> [steps] [line%]  simplified tube spectrum (Kramers + anode K lines, or L lines below the K edge)\n"\
         "beam clear                monochromatic beam at e0 again\n"\
         "A row with 'scatter' adds Rayleigh and Compton peaks (see 'set scatter_angle', 'set compton_broad')."
         t = shlex.split(a)

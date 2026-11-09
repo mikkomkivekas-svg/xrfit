@@ -332,3 +332,25 @@ def test_line_share_fit_and_reference_values():
     res.cfg = core.Config(beam=[{"energy": 10.0, "weight": 1.0}, {"energy": 20.0, "weight": 1.0}])
     with pytest.raises(M.MatrixError, match="line share"):
         M.solve(mx, res)
+
+
+def test_tube_l_lines_at_low_voltage():
+    import math
+    from xrfit import tube, core, xdata
+    b = tube.tube_beam("Rh", 5.0, 40, 1.0, 0.25)
+    lines = {round(r["energy"], 3): r["weight"] for r in b if r["scatter"]}
+    assert abs(sum(r["weight"] for r in b) - 1) < 1e-9
+    assert abs(sum(lines.values()) - 0.25) < 1e-9                        # the whole line share goes to L lines
+    assert 2.697 in lines and 2.834 in lines and not any(E > 5 for E in lines)   # Rh La, Lb; no K lines at 5 kV
+    assert lines[2.697] > lines[2.916]                                    # La strongest, as in the line tables
+    # L1 lines need the L1 edge (3.41 keV): at 3.2 kV the Lb3/Lg1 groups are not excited
+    low = {round(r["energy"], 3) for r in tube.tube_beam("Rh", 3.2, 20, 1.0, 0.25) if r["scatter"]}
+    assert 2.697 in low and 2.916 not in low
+    # high voltage: K lines only unless l_share asks for the L lines too
+    hv = tube.tube_beam("Rh", 30.0, 24, 1.5, 0.03)
+    assert all(r["energy"] > 15 for r in hv if r["scatter"])
+    both = tube.tube_beam("Rh", 30.0, 24, 1.5, 0.03, 0.05)
+    assert abs(sum(r["weight"] for r in both if r["scatter"]) - 0.08) < 1e-9
+    # the beam works as an excitation and as a scatter source in the fit
+    cfg = core.Config(beam=b)
+    assert len(core.scatter_energies(cfg)) >= 4
