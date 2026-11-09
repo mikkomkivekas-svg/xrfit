@@ -304,7 +304,7 @@ def api_example(body, query):
         sample = ["Cr", "Mn", "Fe", "Ni", "Cu", "Mo", "V", "Co", "W"]
         # The file says "uncalibrated" (5 eV per channel); the peaks put the energy scale at about 4.872 eV per channel.
         return set_spectrum(spec, {
-            "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "instrument": ["Rh-L", "Ar"], "zero": -0.018, "gain": 0.004872,
+            "elements": sample[:-1] + ["W-L", "Mo-L", "Rh-L", "Ar", "Ca"], "instrument": ["Rh-L", "Ar"], "free_ratios": False, "zero": -0.018, "gain": 0.004872,
             "emin": 1.8, "emax": 22.0, "free": ["zero", "gain", "noise", "tail_frac", "esc_scale"],
             "tail_frac": 0.02, "esc_frac": 0.0, "sum_peaks": True, "beam": beam, "tube": tube_cfg,
             # MXR Lightbright 50 end-window tube: standard 50 um Be window, source facing the sample surface (normal incidence);

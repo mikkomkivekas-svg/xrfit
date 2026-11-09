@@ -172,7 +172,7 @@ class Config:
     esc_scale: float = 1.0      # multiplier of the calculated Si escape ratio (si_escape_ratio)
     tail2_frac: float = 0.0     # long low-energy tail (shelf under strong soft lines) share and length
     beta2: float = 0.6
-    free: list = field(default_factory=lambda: ["zero", "gain", "noise"])
+    free: list = field(default_factory=lambda: ["zero", "gain", "noise", "esc_scale"])
     emin: float = 0.0
     emax: float = 1e9
     background: str = "snip"    # snip | poly | snip+poly | none
@@ -180,7 +180,7 @@ class Config:
     snip_smooth: int = 5
     poly_order: int = 2
     sum_peaks: bool = False
-    free_ratios: bool = False
+    free_ratios: bool = True    # fit alpha, beta and gamma lines of a shell as separate groups
     e0: float = 20.0            # excitation energy (keV): sets L-line weights and theory quantification
     xs_source: str = "xraylib"  # xraylib | krause  (which tabulated cross-section column to use)
     # Incident spectrum, PyMca style: rows {"energy" keV, "weight" relative photons, "use", "scatter"}.

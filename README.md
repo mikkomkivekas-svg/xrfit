@@ -69,6 +69,8 @@ and marked **not sample** on their chip (`instrument` in the settings). They kee
 share and the matrix calculation ignores them. The K lines of the anode work differently: scatter-flagged rows of the
 incident spectrum are fitted as one Rayleigh and one Compton peak.
 
+**Defaults.** The Si escape scale is a free parameter and α, β and γ lines of a shell are fitted as separate groups (`free_ratios`), because the Ar Kβ escape peak at 1.45 keV sits 36 eV from Al Kα and the Kβ share of argon is set by the air and detector, not by the tabulated ratio. Untick **Fit α, β and γ lines separately** for the older combined groups. The bundled examples keep the combined groups.
+
 **Argon from the air** is added automatically. When an air path is set (Sample matrix → Detector and path, or `matrix.detector.air_mm`), the fit includes an `Ar-K` group marked as an instrument line, unless you have already added an Ar token yourself. The select **Argon from air** in the Elements panel (`argon` in the settings, `set argon auto|on|off` in the shell) changes this: `on` fits it even with no air path entered, `off` leaves it out. Its escape peaks follow from the calculated Si escape ratio. The Ar Kβ escape peak at 1.45 keV is the small bump you see between the Si Kα peak and the Ar Kα escape peak at 1.22 keV.
 
 ## Filters
