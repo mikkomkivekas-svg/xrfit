@@ -26,6 +26,16 @@ The Si escape peak is calculated for every line above the Si K edge (Reed and Wa
 
 Strong soft lines (Rh L, Ar K) sit on a low-energy shelf. **Long tail fraction / length** (`tail2_frac`, `beta2`) add a second, long exponential tail next to the short one, so the shelf does not have to be absorbed by the short tail or by an unphysical Kβ amplitude. On a 5 kV kaolinite spectrum (600 ns peaking time) the calculated escape gives a fitted scale of 1.1–1.2 and the long tail takes χ² from 12 to 8.
 
+## Calibration tab
+
+Fits a straight line `signal = a + b × amount` to standards of known amount (film mass per area, thickness, concentration) and reads unknowns off it.
+
+1. Choose the standards' spectra and press **Read spectra**. The signal is either the counts in an energy window (optionally minus a line drawn between the window edges) or the net peak area of one line group from a full fit with the current Elements settings. **Counts per second** divides by live time.
+2. Type the known amount next to each spectrum. A spectrum with no amount is treated as an unknown. Untick a row to leave it out of the fit.
+3. The page shows slope and intercept with errors, R², the scatter about the line in amount units, a 3σ detection limit from the counting error of the lowest standard, and the amount read from the line for every spectrum, with its uncertainty.
+
+Options: force the line through zero, and weight by counting error. The result downloads as a table (CSV) and as calibration constants (JSON). The energy window uses the zero and gain you enter, which start from the Elements settings.
+
 ## Calibrating the air path
 
 When the detector looks at the sample through air (soft lines such as Al-K and Si-K at low kV), the distance matters a lot: 30 mm of air passes about 1.2 % of Al-K and 6 % of Si-K, so a 1 mm error changes the Al signal by roughly 16 %. Tick **Fit the air path** in the Matrix tab, give every amount of a standard that has two lines far apart in energy (kaolinite: Al-K and Si-K, Al/Si mass ratio about 0.96), and the effective distance is fitted together with K. The result shows start value, fitted value and uncertainty; **Use this air path** copies it into the detector settings. Shell: set `matrix` key `fit_air` true in the JSON; result field `air_path`.

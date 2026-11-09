@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import core, demo, io_ketek, lines, matrix, tube, xdata
+from . import calibration, core, demo, io_ketek, lines, matrix, tube, xdata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -417,7 +417,55 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
-POST_ROUTES = {"/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+def api_calsignals(body, query):
+    """Signal (ROI sum or fitted net area) of each calibration spectrum."""
+    files = body.get("files") or []
+    if not files:
+        raise ApiError("Choose at least one spectrum file.")
+    specs = []
+    for f in files:
+        try:
+            specs.append(load_bytes(f["name"], base64.b64decode(f["b64"])))
+        except Exception as e:
+            raise ApiError(f"Could not read {f.get('name', 'file')}: {e}") from e
+    sig = body.get("signal") or {}
+    norm = "live_time" if sig.get("normalize") == "live_time" else "none"
+    try:
+        if sig.get("kind") == "area":
+            cfg = cfg_from_json(body.get("config"))
+            if not cfg.elements:
+                raise ApiError("Add the element to fit under Elements first.")
+            if not sig.get("group"):
+                raise ApiError("Choose the line group to use as the signal.")
+            vals = calibration.area_signals(specs, cfg, sig["group"], norm)
+        else:
+            cfg = cfg_from_json(body.get("config"))
+            zero = cfg.zero if sig.get("zero") in (None, "") else float(sig["zero"])
+            gain = cfg.gain if sig.get("gain") in (None, "") else float(sig["gain"])
+            vals = calibration.roi_signals(specs, zero, gain, float(sig.get("emin")), float(sig.get("emax")),
+                                           "edges" if sig.get("background") == "edges" else "none", normalize=norm)
+    except (KeyError, ValueError, TypeError) as e:
+        raise ApiError(msg(e)) from e
+    return {"rows": [{"name": s.name, "live_time": s.live_time, "signal": v[0], "err": v[1]} for s, v in zip(specs, vals)],
+            "zero": zero if sig.get("kind") != "area" else cfg.zero, "gain": gain if sig.get("kind") != "area" else cfg.gain}
+
+
+def api_calfit(body, query):
+    rows = []
+    for r in body.get("rows") or []:
+        amt = r.get("amount")
+        try:
+            amt = None if amt in (None, "") else float(amt)
+        except (TypeError, ValueError):
+            raise ApiError(f"The amount for {r.get('name', 'a row')} is not a number.") from None
+        rows.append({"name": r.get("name", ""), "signal": float(r["signal"]), "err": float(r["err"]), "amount": amt, "use": bool(r.get("use", True))})
+    try:
+        return calibration.calibrate(rows, bool(body.get("through_zero")), bool(body.get("weighted")))
+    except (ValueError, np.linalg.LinAlgError) as e:
+        raise ApiError(msg(e)) from e
+
+
+POST_ROUTES = {"/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

@@ -377,11 +377,13 @@ table.data tr:hover td { background: var(--surface-2); }
         <button class="tab" role="tab" aria-selected="false" data-pane="matrix" id="t-matrix">Matrix</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="lines" id="t-lines">Line data</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="batch" id="t-batch">Batch</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="cal" id="t-cal">Calibration</button>
       </div>
       <div class="pane" id="pane-areas" role="tabpanel" aria-labelledby="t-areas"></div>
       <div class="pane" id="pane-matrix" role="tabpanel" aria-labelledby="t-matrix" hidden></div>
       <div class="pane" id="pane-lines" role="tabpanel" aria-labelledby="t-lines" hidden></div>
       <div class="pane" id="pane-batch" role="tabpanel" aria-labelledby="t-batch" hidden></div>
+      <div class="pane" id="pane-cal" role="tabpanel" aria-labelledby="t-cal" hidden></div>
     </section>
   </main>
 </div>
@@ -957,7 +959,7 @@ $("#mx-run").onclick = async () => {
   try {
     S.matrixResult = await api("/api/matrix", { matrix: mx() }); S.matrixStale = false;
     document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.pane === "matrix")));
-    for (const id of ["areas", "matrix", "lines", "batch"]) $("#pane-" + id).hidden = id !== "matrix";
+    for (const id of ["areas", "matrix", "lines", "batch", "cal"]) $("#pane-" + id).hidden = id !== "matrix";
     renderMatrixPane();
     const K = S.matrixResult.k; if (S.matrixResult.k_fitted) setStatus(`Matrix calculation done. Fitted K = ${fmtSig(K, 4)}.`); else setStatus("Matrix calculation done.");
   } catch (e) { err.textContent = e.message; err.hidden = false; }
@@ -1120,10 +1122,143 @@ function showBatch(out, d) {
   out.replaceChildren(h("div", { class: "row", style: "margin-bottom:8px" }, a), h("table", { class: "data" }, h("thead", {}, head), tb));
 }
 
+/* ---------- calibration tab ---------- */
+const CAL = { zeroKeV: null, gainKeV: null, files: [], rows: [], result: null, unit: "gsm", kind: "roi", emin: 1.64, emax: 1.86, background: "none", group: "", normalize: false, zero: false, weighted: false, sigKey: "" };
+function renderCalPane() {
+  const p = $("#pane-cal"); p.replaceChildren();
+  const fi = h("input", { type: "file", multiple: true, accept: ".vspc,.csv,.mca,.txt,.dat", id: "cal-files", style: "width:auto", "aria-label": "Calibration spectra" });
+  const status = h("span", { class: "hint", style: "margin:0" });
+  const setup = h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:10px;align-items:center" });
+  const unit = h("input", { type: "text", value: CAL.unit, style: "width:70px", "aria-label": "Unit of the known amounts", oninput: e => { CAL.unit = e.target.value; drawCal(); } });
+  const kind = h("select", { id: "cal-kind", "aria-label": "Signal", onchange: e => { CAL.kind = e.target.value; invalidateCal(); renderCalSetup(); } },
+    h("option", { value: "roi", text: "Counts in an energy window" }), h("option", { value: "area", text: "Net peak area from a fit" }));
+  kind.value = CAL.kind;
+  const norm = h("input", { type: "checkbox", id: "cal-norm", onchange: e => { CAL.normalize = e.target.checked; invalidateCal(); } }); norm.checked = CAL.normalize;
+  const zero = h("input", { type: "checkbox", id: "cal-zero", onchange: e => { CAL.zero = e.target.checked; fitCal(); } }); zero.checked = CAL.zero;
+  const wt = h("input", { type: "checkbox", id: "cal-wt", onchange: e => { CAL.weighted = e.target.checked; fitCal(); } }); wt.checked = CAL.weighted;
+  const sigBox = h("div", { class: "row", id: "cal-sig", style: "gap:8px;align-items:center;flex-wrap:wrap" });
+  const read = h("button", { class: "btn", id: "cal-read", onclick: async () => {
+    if (!fi.files.length) { status.textContent = "Choose the standards' spectra first."; return; }
+    status.textContent = "Reading " + fi.files.length + " spectra…"; read.disabled = true;
+    try {
+      const files = []; for (const f of [...fi.files].sort((a, b) => a.name.localeCompare(b.name))) files.push({ name: f.name, b64: await toB64(f) });
+      const d = await api("/api/calsignals", { files, config: S.cfg, signal: calSignalBody() });
+      const keep = new Map(CAL.rows.map(r => [r.name, r]));
+      CAL.rows = d.rows.map(r => ({ name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
+      CAL.sigKey = JSON.stringify(calSignalBody()); CAL.files = files;
+      status.textContent = `${CAL.rows.length} spectra read (window set with zero ${fmtSig(d.zero, 4)} keV and gain ${fmtSig(d.gain, 5)} keV/channel). Enter the known amounts below.`;
+      renderCalTable(); fitCal();
+    } catch (e) { status.textContent = ""; $("#cal-out").replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+    read.disabled = false; } }, "Read spectra");
+  CAL._status = status; CAL._setup = setup; CAL._sigBox = sigBox; CAL._read = read;
+  p.append(h("div", { class: "row", style: "flex-wrap:wrap" }, fi, read, status),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:10px;align-items:center" }, h("label", {}, "Signal ", kind), sigBox,
+      h("label", { class: "chk" }, norm, " Counts per second"), h("label", {}, "Unit of the amounts ", unit)),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:8px;align-items:center" },
+      h("label", { class: "chk" }, zero, " Force the line through zero"), h("label", { class: "chk" }, wt, " Weight by counting error")),
+    h("p", { class: "hint", text: "Fit signal = a + b × amount to standards of known amount, then read unknowns off the line. Leave an amount empty to treat that spectrum as an unknown. Untick a row to leave it out of the fit. The energy window needs the spectrometer's zero and gain, which start from the Elements settings." }),
+    h("div", { id: "cal-table", style: "margin-top:8px" }), h("div", { id: "cal-out", style: "margin-top:10px" }));
+  renderCalSetup(); renderCalTable();
+}
+function renderCalSetup() {
+  const b = CAL._sigBox; if (!b) return; b.replaceChildren();
+  const num = (key, label) => h("label", {}, label + " ", h("input", { type: "number", step: "0.01", value: CAL[key], style: "width:76px", onchange: e => { CAL[key] = +e.target.value; invalidateCal(); } }));
+  if (CAL.kind === "roi") {
+    const bg = h("select", { "aria-label": "Background", onchange: e => { CAL.background = e.target.value; invalidateCal(); } }, h("option", { value: "none", text: "No background subtraction" }), h("option", { value: "edges", text: "Subtract a line between the window edges" }));
+    bg.value = CAL.background;
+    const cal = (key, label, def, step) => h("label", {}, label + " ", h("input", { type: "number", step, value: CAL[key] ?? def, style: "width:86px", onchange: e => { CAL[key] = e.target.value === "" ? null : +e.target.value; invalidateCal(); } }));
+    b.append(num("emin", "From (keV)"), num("emax", "to (keV)"), bg, cal("zeroKeV", "Zero (keV)", S.cfg.zero, "0.001"), cal("gainKeV", "Gain (keV/ch)", S.cfg.gain, "0.0001"));
+  } else {
+    const toks = S.cfg.elements || [], names = [];
+    for (const g of S.groupInfo || []) for (const x of g.groups || []) names.push(x.name);
+    if (!CAL.group || (names.length && !names.includes(CAL.group))) CAL.group = names[0] || "";
+    const sel = h("select", { "aria-label": "Line group", onchange: e => { CAL.group = e.target.value; invalidateCal(); } }, (names.length ? names : toks).map(n => h("option", { value: n, text: n })));
+    sel.value = CAL.group; b.append(h("label", {}, "Line group ", sel), h("span", { class: "hint", style: "margin:0", text: "Each spectrum is fitted with the current Elements settings." }));
+  }
+}
+function calSignalBody() { return CAL.kind === "roi" ? { kind: "roi", emin: CAL.emin, emax: CAL.emax, zero: CAL.zeroKeV ?? S.cfg.zero, gain: CAL.gainKeV ?? S.cfg.gain, background: CAL.background, normalize: CAL.normalize ? "live_time" : "none" } : { kind: "area", group: CAL.group, normalize: CAL.normalize ? "live_time" : "none" }; }
+function invalidateCal() { if (CAL.rows.length && CAL._status) CAL._status.textContent = "Signal settings changed. Press Read spectra to update."; }
+function renderCalTable() {
+  const t = $("#cal-table"); if (!t) return;
+  if (!CAL.rows.length) { t.replaceChildren(); return; }
+  const tb = h("tbody"), res = CAL.result ? new Map(CAL.result.rows.map(r => [r.name, r])) : new Map();
+  CAL.rows.forEach((r, i) => {
+    const o = res.get(r.name), known = r.amount !== "" && r.amount != null;
+    tb.append(h("tr", { id: "cal-row-" + i },
+      h("td", {}, h("input", { type: "checkbox", checked: r.use, "aria-label": "Use " + r.name + " in the fit", onchange: e => { r.use = e.target.checked; fitCal(); } })),
+      h("td", { text: r.name }),
+      h("td", {}, h("input", { type: "number", step: "any", value: r.amount, style: "width:90px", "aria-label": "Known amount of " + r.name, oninput: e => { r.amount = e.target.value; scheduleFit(); } })),
+      h("td", { class: "n", text: fmtInt(r.signal) }), h("td", { class: "n", text: "± " + fmtSig(r.err, 3) }),
+      h("td", { class: "n", id: "cal-est-" + i, text: "" }), h("td", { class: "n", id: "cal-res-" + i, text: "" })));
+  });
+  t.replaceChildren(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Use" }), h("th", { text: "Spectrum" }), h("th", { text: "Known (" + CAL.unit + ")" }), h("th", { class: "n", text: "Signal" }), h("th", { class: "n", text: "Error" }), h("th", { class: "n", text: "Read from line (" + CAL.unit + ")" }), h("th", { class: "n", text: "Residual" }))), tb));
+  fillCalResults();
+}
+function fillCalResults() {
+  if (!CAL.result) return;
+  const res = new Map(CAL.result.rows.map(r => [r.name, r]));
+  CAL.rows.forEach((r, i) => {
+    const o = res.get(r.name); if (!o) return;
+    const e = $("#cal-est-" + i), s = $("#cal-res-" + i); if (!e) return;
+    e.textContent = `${fmtSig(o.estimate, 4)} ± ${fmtSig(o.estimate_err, 2)}`;
+    s.textContent = o.resid_pct == null ? "" : `${o.resid_pct >= 0 ? "+" : ""}${o.resid_pct.toFixed(1)} %`;
+  });
+}
+let calTimer = null;
+function scheduleFit() { clearTimeout(calTimer); calTimer = setTimeout(fitCal, 250); }
+async function fitCal() {
+  const out = $("#cal-out"); if (!out || !CAL.rows.length) return;
+  const n = CAL.rows.filter(r => r.use && r.amount !== "" && r.amount != null).length;
+  if (n < (CAL.zero ? 1 : 2)) { CAL.result = null; out.replaceChildren(h("p", { class: "hint", text: "Enter known amounts for at least " + (CAL.zero ? "one standard." : "two standards.") })); CAL.rows.forEach((r, i) => { for (const k of ["est", "res"]) { const e = $(`#cal-${k}-${i}`); if (e) e.textContent = ""; } }); return; }
+  try {
+    CAL.result = await api("/api/calfit", { rows: CAL.rows.map(r => ({ name: r.name, signal: r.signal, err: r.err, amount: r.amount, use: r.use })), through_zero: CAL.zero, weighted: CAL.weighted });
+    fillCalResults(); drawCal();
+  } catch (e) { CAL.result = null; out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+}
+function drawCal() {
+  const out = $("#cal-out"); if (!out || !CAL.result) return;
+  const f = CAL.result.fit, u = CAL.unit || "", rows = CAL.result.rows;
+  const stat = (k, v) => h("div", { style: "min-width:120px" }, h("div", { class: "hint", style: "margin:0", text: k }), h("div", { class: "num", style: "font-size:15px", text: v }));
+  const sg = (v, s) => `${fmtSig(v, 5)} ± ${fmtSig(s, 2)}`;
+  const stats = h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 22px" },
+    stat("Slope b (signal per " + u + ")", sg(f.b, f.sb)), stat("Intercept a (signal)", f.through_zero ? "0 (forced)" : sg(f.a, f.sa)),
+    stat("R²", f.r2 == null ? "–" : f.r2.toFixed(5)), stat("Scatter about the line", f.rmse_amount == null ? "–" : fmtSig(f.rmse_amount, 3) + " " + u),
+    stat("Detection limit (3σ)", fmtSig(f.lod, 3) + " " + u), stat("Standards", f.n + (f.dof > 0 ? "" : " (no spare degrees of freedom)")));
+  const note = !f.through_zero ? h("p", { class: "hint", text: `A sample with zero ${u} would give a signal of ${fmtSig(f.a, 4)} on this line (background plus anything already on the substrate). Measure the bare substrate and enter 0 as its known amount to see how it compares.` }) : null;
+  const csv = ["spectrum,use,known,signal,error,fitted_signal,read_from_line,read_err,residual_pct"].concat(rows.map(r => [JSON.stringify(r.name), r.use, r.amount ?? "", r.signal, r.err, r.fitted_signal, r.estimate, r.estimate_err, r.resid_pct ?? ""].join(","))).join("\n");
+  const cal = JSON.stringify({ unit: u, signal: calSignalBody(), a: f.a, b: f.b, sa: f.sa, sb: f.sb, through_zero: f.through_zero }, null, 2);
+  const dl = (txt, type, name, label) => h("a", { class: "btn", href: URL.createObjectURL(new Blob([txt], { type })), download: name, text: label });
+  out.replaceChildren(stats, note, calChart(rows, f, u), h("div", { class: "row", style: "margin-top:8px;gap:8px" }, dl(csv + "\n", "text/csv", "xrfit-calibration.csv", "Download table (CSV)"), dl(cal + "\n", "application/json", "xrfit-calibration.json", "Download calibration (JSON)")));
+}
+function calChart(rows, f, u) {
+  const W = 560, H = 300, m = { l: 64, r: 16, t: 14, b: 40 };
+  const NS = "http://www.w3.org/2000/svg", el = (t, a = {}, ...k) => { const e = document.createElementNS(NS, t); for (const [x, v] of Object.entries(a)) e.setAttribute(x, v); k.forEach(c => e.append(c)); return e; };
+  const pts = rows.map(r => ({ x: r.amount != null ? r.amount : r.estimate, y: r.signal, e: r.err, std: r.amount != null, use: r.use }));
+  const xs = pts.map(p => p.x), xmin = Math.min(0, ...xs), xmax = Math.max(...xs) * 1.05 || 1;
+  const ymax = Math.max(...pts.map(p => p.y), f.a + f.b * xmax) * 1.06, ymin = Math.min(0, ...pts.map(p => p.y), f.a);
+  const X = v => m.l + (v - xmin) / (xmax - xmin || 1) * (W - m.l - m.r), Y = v => H - m.b - (v - ymin) / (ymax - ymin || 1) * (H - m.t - m.b);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:620px;display:block", role: "img", "aria-label": `Calibration line: signal against amount in ${u}. ${rows.length} spectra.` });
+  const tick = (lo, hi, n = 5) => { const st = (hi - lo) / n, mag = Math.pow(10, Math.floor(Math.log10(st))), nice = [1, 2, 5, 10].map(q => q * mag).find(q => q >= st); const a = []; for (let v = Math.ceil(lo / nice) * nice; v <= hi + 1e-9; v += nice) a.push(+v.toPrecision(10)); return a; };
+  for (const v of tick(ymin, ymax)) { svg.append(el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "var(--grid)" })); svg.append(el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end", fill: "var(--text-3)", "font-size": 11 }, document.createTextNode(fmtK(v)))); }
+  for (const v of tick(xmin, xmax)) { svg.append(el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: "var(--grid)" })); svg.append(el("text", { x: X(v), y: H - m.b + 16, "text-anchor": "middle", fill: "var(--text-3)", "font-size": 11 }, document.createTextNode(String(v)))); }
+  svg.append(el("text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12 }, document.createTextNode(`Amount (${u})`)));
+  svg.append(el("text", { x: 14, y: (m.t + H - m.b) / 2, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})` }, document.createTextNode("Signal")));
+  svg.append(el("line", { x1: X(xmin), y1: Y(f.a + f.b * xmin), x2: X(xmax), y2: Y(f.a + f.b * xmax), stroke: "var(--s1)", "stroke-width": 2 }));
+  for (const p of pts) {
+    const c = el("circle", { cx: X(p.x), cy: Y(p.y), r: 5, fill: p.std && p.use ? "var(--s1)" : "var(--surface-1)", stroke: p.std && !p.use ? "var(--text-3)" : p.std ? "var(--surface-1)" : "var(--s2)", "stroke-width": p.std && p.use ? 2 : 2 });
+    c.append(el("title", {}, document.createTextNode(`${fmtSig(p.x, 4)} ${u}: ${fmtInt(p.y)}`)));
+    svg.append(c);
+  }
+  const key = h("div", { class: "hint", style: "display:flex;gap:16px;margin:2px 0 0 " + m.l + "px" },
+    h("span", {}, h("span", { style: "color:var(--s1)" }, "● "), "standards used"), h("span", {}, h("span", { style: "color:var(--text-3)" }, "○ "), "standards left out"), h("span", {}, h("span", { style: "color:var(--s2)" }, "○ "), "unknowns, placed at the amount read from the line"));
+  return h("div", {}, svg, key);
+}
+
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
-  for (const id of ["areas", "matrix", "lines", "batch"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
+  for (const id of ["areas", "matrix", "lines", "batch", "cal"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
+  if (t.dataset.pane === "cal") renderCalSetup();
   if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
 }));
 
@@ -1180,7 +1315,7 @@ addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "En
 /* ============================== boot ============================== */
 async function boot() {
   const th = store.get("xrfit-theme") || "auto"; plot.init(); applyTheme(THEMES.includes(th) ? th : "auto");
-  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderAreas(); renderMatrixPane(); renderLegend();
+  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderCalPane(); renderAreas(); renderMatrixPane(); renderLegend();
   try {
     const d = await api("/api/elements"); $("#el-list").replaceChildren(...d.elements.map(e => h("option", { value: e.symbol, label: "Z = " + e.Z })));
     const s = await api("/api/session"); if (s.spectrum) applySpectrum(s.spectrum, false);

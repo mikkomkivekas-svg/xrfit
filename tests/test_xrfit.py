@@ -3,6 +3,7 @@ import math
 import unittest
 
 import numpy as np
+import pytest
 
 from xrfit import core, lines, xdata
 
@@ -384,3 +385,24 @@ def test_si_escape_ratio_and_long_tail():
     assert abs(y.sum() - (1 + core.si_escape_ratio(5.0))) < 0.01 and esc > 0
     p0 = dict(p, tail2_frac=0.0)
     assert core.peak(e, 5.0, p, 0.005)[(e > 1) & (e < 2)].sum() > core.peak(e, 5.0, p0, 0.005)[(e > 1) & (e < 2)].sum()
+
+
+def test_calibration_line_and_roi():
+    from xrfit import calibration
+    x = [0.1, 0.2, 0.4, 0.8]
+    rows = [{"name": f"s{i}", "signal": 5000 + 20000 * a, "err": 50.0, "amount": a, "use": True} for i, a in enumerate(x)]
+    rows.append({"name": "unk", "signal": 5000 + 20000 * 0.5, "err": 50.0, "amount": None, "use": True})
+    rows.append({"name": "skip", "signal": 99999.0, "err": 50.0, "amount": 0.3, "use": False})
+    out = calibration.calibrate(rows)
+    f = out["fit"]
+    assert abs(f["a"] - 5000) < 1e-6 and abs(f["b"] - 20000) < 1e-6 and f["n"] == 4
+    unk = [r for r in out["rows"] if r["name"] == "unk"][0]
+    assert abs(unk["estimate"] - 0.5) < 1e-9 and unk["estimate_err"] > 0
+    z = calibration.calibrate([dict(r, signal=20000 * r["amount"]) for r in rows[:4]], through_zero=True)
+    assert abs(z["fit"]["b"] - 20000) < 1e-6 and z["fit"]["a"] == 0
+    with pytest.raises(ValueError):
+        calibration.calibrate(rows[:1])
+    y = np.zeros(1000); y[400:420] = 10
+    s = core.Spectrum(y, "t", 2.0)
+    (v, e), = calibration.roi_signals([s], 0.0, 0.005, 2.0, 2.1, normalize="live_time")
+    assert abs(v - 100.0) < 1e-9 and e > 0
