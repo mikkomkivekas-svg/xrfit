@@ -35,4 +35,16 @@ with zipfile.ZipFile(os.path.join(OUT, "xrfit-py.zip"), "w", zipfile.ZIP_DEFLATE
             info = zipfile.ZipInfo(os.path.relpath(full, ROOT), (2020, 1, 1, 0, 0, 0))  # stable bytes
             info.compress_type = zipfile.ZIP_DEFLATED
             z.writestr(info, open(full, "rb").read())
+# Cache-busting: GitHub Pages lets browsers keep files for several minutes, so a new index.html could run an
+# old Python package. Tie the three files to a hash of the zip.
+import hashlib
+ver = hashlib.sha256(open(os.path.join(OUT, "xrfit-py.zip"), "rb").read()).hexdigest()[:10]
+def patch(name, old, new):
+    path = os.path.join(OUT, name)
+    t = open(path, encoding="utf-8").read()
+    assert t.count(old) == 1, (name, old)
+    open(path, "w", encoding="utf-8").write(t.replace(old, new))
+patch("index.html", '<script src="shim.js"></script>', f'<script src="shim.js?v={ver}"></script>')
+patch("shim.js", 'new Worker("worker.js")', f'new Worker("worker.js?v={ver}")')
+patch("worker.js", 'fetch("xrfit-py.zip")', f'fetch("xrfit-py.zip?v={ver}")')
 print("built", OUT, sorted(os.listdir(OUT)))
