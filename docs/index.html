@@ -403,7 +403,7 @@ table.data tr:hover td { background: var(--surface-2); }
 </div>
 <div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
 
-<script src="shim.js?v=f63fcbb3f5"></script>
+<script src="shim.js?v=f3ed15ee07"></script>
 <script>
 "use strict";
 /* ============================ helpers ============================ */
@@ -1175,7 +1175,7 @@ function renderCalPane() {
       CAL.rows = d.rows.map(r => ({ name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
       CAL.sigKey = JSON.stringify(calSignalBody()); CAL.files = files;
       status.textContent = `${CAL.rows.length} spectra read (window set with zero ${fmtSig(d.zero, 4)} keV and gain ${fmtSig(d.gain, 5)} keV/channel). Enter the known amounts below.`;
-      renderCalTable(); fitCal();
+      renderCalTable(); renderCalRef(); fitCal();
     } catch (e) { status.textContent = ""; $("#cal-out").replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
     read.disabled = false; } }, "Read spectra");
   CAL._status = status; CAL._setup = setup; CAL._sigBox = sigBox; CAL._read = read;
@@ -1185,8 +1185,8 @@ function renderCalPane() {
     h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:8px;align-items:center" },
       h("label", { class: "chk" }, zero, " Force the line through zero"), h("label", { class: "chk" }, wt, " Weight by counting error")),
     h("p", { class: "hint", text: "Fit signal = a + b × amount to standards of known amount, then read unknowns off the line. Leave an amount empty to treat that spectrum as an unknown. Untick a row to leave it out of the fit. The energy window needs the spectrometer's zero and gain, which start from the Elements settings." }),
-    h("div", { id: "cal-table", style: "margin-top:8px" }), h("div", { id: "cal-out", style: "margin-top:10px" }));
-  renderCalSetup(); renderCalTable();
+    h("div", { id: "cal-table", style: "margin-top:8px" }), h("div", { id: "cal-out", style: "margin-top:10px" }), h("div", { id: "cal-ref", style: "margin-top:14px" }));
+  renderCalSetup(); renderCalTable(); renderCalRef();
 }
 function renderCalSetup() {
   const b = CAL._sigBox; if (!b) return; b.replaceChildren();
@@ -1280,6 +1280,46 @@ function calChart(rows, f, u) {
   const key = h("div", { class: "hint", style: "display:flex;gap:16px;margin:2px 0 0 " + m.l + "px" },
     h("span", {}, h("span", { style: "color:var(--s1)" }, "● "), "standards used"), h("span", {}, h("span", { style: "color:var(--text-3)" }, "○ "), "standards left out"), h("span", {}, h("span", { style: "color:var(--s2)" }, "○ "), "unknowns, placed at the amount read from the line"));
   return h("div", {}, svg, key);
+}
+
+/* ---------- thick reference (film mass from the ratio to a bulk standard) ---------- */
+const REF = { idx: -1, line: "Al-K", film: "Al 100", filmRho: "", ref: "Al 100", refRho: "", sub: "C 62.5, H 4.2, O 33.3", subRho: "1.38", scale: false, result: null };
+function renderCalRef() {
+  const box = $("#cal-ref"); if (!box) return; box.replaceChildren();
+  const inp = (key, label, w, ph) => h("label", {}, label + " ", h("input", { type: "text", value: REF[key], placeholder: ph || "", style: "width:" + w + "px", oninput: e => { REF[key] = e.target.value; } }));
+  const sel = h("select", { id: "ref-sel", "aria-label": "Thick reference spectrum", onchange: e => { REF.idx = +e.target.value; } }, h("option", { value: -1, text: "Choose the reference spectrum…" }), CAL.rows.map((r, i) => h("option", { value: i, text: r.name })));
+  sel.value = REF.idx;
+  const sc = h("input", { type: "checkbox", id: "ref-scale", onchange: e => { REF.scale = e.target.checked; } }); sc.checked = REF.scale;
+  const out = h("div", { id: "ref-out", style: "margin-top:8px" });
+  const go = h("button", { class: "btn", id: "ref-go", onclick: async () => {
+    if (REF.idx < 0 || !CAL.rows[REF.idx]) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Choose the thick reference spectrum first." })); return; }
+    try {
+      const k = r => CAL.normalize || !(r.live_time > 0) ? 1 : 1 / r.live_time;   // counts per second of live time
+      REF.result = await api("/api/calref", { config: S.cfg, ref_index: REF.idx, line: REF.line, scale_to_known: REF.scale,
+        rows: CAL.rows.map(r => ({ name: r.name, signal: r.signal * k(r), err: r.err * k(r), amount: r.amount })),
+        film: { composition: REF.film, density: REF.filmRho }, reference: { composition: REF.ref, density: REF.refRho }, substrate: { composition: REF.sub, density: REF.subRho } });
+      drawCalRef();
+    } catch (e) { REF.result = null; out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); } } }, "Convert to film mass");
+  box.append(h("details", { open: false },
+    h("summary", { style: "cursor:pointer;color:var(--text-2)", text: "Thick reference: film mass from the ratio to a bulk sample (for example a thin Al film against Al foil)" }),
+    h("p", { class: "hint", text: "The signal of a thin film divided by the signal of an infinitely thick reference gives the film's mass per area. The matrix model (geometry and the incident spectrum from the Beam settings) converts the ratio. Position, air path and detector cancel, so measure the reference with the same settings as the films. Mark the reference in the table above by choosing it here." }),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center" }, h("label", {}, "Reference ", sel), inp("line", "Line", 60), h("label", { class: "chk" }, sc, " Scale to films with a known amount (g/m²)")),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:6px" }, inp("film", "Film", 150, "Al 100"), inp("filmRho", "density g/cm³", 60, "auto"), inp("ref", "Reference", 150, "Al 100"), inp("refRho", "density", 60, "auto"), inp("sub", "Substrate", 190), inp("subRho", "density", 60)),
+    h("div", { style: "margin-top:8px" }, go), out));
+}
+function drawCalRef() {
+  const out = $("#ref-out"), r = REF.result; if (!out || !r) return;
+  const fs = (v, n = 3) => v == null || !isFinite(v) ? "–" : fmtSig(v, n);
+  const body = h("tbody", {}, r.rows.map(o => o.is_reference ? h("tr", {}, h("td", { text: o.name + " (reference)" }), h("td", { class: "n", text: "1" }), h("td", { colspan: 4, class: "hint", text: "thick reference" })) :
+    h("tr", {}, h("td", { text: o.name }), h("td", { class: "n", text: fs(o.ratio, 4) + " ± " + fs(o.ratio_err, 2) }), h("td", { class: "n", text: fs(o.mass_g_m2, 4) + " ± " + fs(o.mass_err_g_m2, 2) }),
+      h("td", { class: "n", text: fs(o.element_g_m2, 4) }), h("td", { class: "n", text: fs(o.thickness_nm, 4) }), h("td", { text: o.above_reference ? "at or above the reference signal: not a thin film" : "" }))));
+  const note = [`In the thin limit the model gives ${fs(100 * r.slope_ratio_per_g_m2, 3)} % of the reference signal per g/m² of film, and 63 % of it at ${fs(r.saturation_mass_g_m2, 3)} g/m².`];
+  if (r.monochromatic) note.push("The excitation is a single energy. A real tube spectrum (for example Rh L lines at 2.7 keV) penetrates much less, which changes this scale several times over. Define the incident spectrum under Beam, or scale to a film of known mass.");
+  if (REF.scale) note.push(`Model scaled by ${fs(r.scale_factor, 4)} to match ${r.n_known} film(s) of known mass.`);
+  const csv = ["spectrum,ratio,ratio_err,film_mass_g_m2,mass_err_g_m2,element_g_m2,thickness_nm"].concat(r.rows.filter(o => !o.is_reference).map(o => [JSON.stringify(o.name), o.ratio, o.ratio_err, o.mass_g_m2, o.mass_err_g_m2, o.element_g_m2, o.thickness_nm].join(","))).join("\n");
+  out.replaceChildren(h("table", { class: "data" }, h("thead", {}, h("tr", {}, ["Spectrum", "Signal ÷ reference", "Film mass (g/m²)", r.element + " mass (g/m²)", "Thickness (nm)", ""].map((t, i) => h("th", { class: i > 0 && i < 5 ? "n" : "", text: t })))), body),
+    ...note.map(t => h("p", { class: "hint", text: t })),
+    h("a", { class: "btn", href: URL.createObjectURL(new Blob([csv + "\n"], { type: "text/csv" })), download: "xrfit-film-mass.csv", text: "Download table (CSV)" }));
 }
 
 /* ---------- tabs ---------- */

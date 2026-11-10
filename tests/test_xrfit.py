@@ -466,3 +466,29 @@ def test_coated_soft_line_example_is_prefilled_and_fits():
     r = webapp.api_fit({"config": sug}, None)
     names = {a["name"]: a for a in r["areas"]}
     assert r["chi2red"] < 7 and names["Rh-Ll"]["instrument"] and names["Ar-K"]["instrument"] and names["Si-Ka"]["counts"] > 40000 and "Ar-Ka" not in names
+
+
+def test_thick_reference_inverts_the_model():
+    from xrfit import calibration, core, matrix, tube
+    cfg = core.Config(beam=tube.tube_beam("Rh", 5.0, 30, 1.0, 0.1),
+                      matrix={"alpha_in": 45, "alpha_out": 45, "detector": {"si_mm": 0.5, "air_mm": 30, "spot_mm": 40}})
+    pet = {"C": .625, "H": .042, "O": .333}
+    mx = dict(cfg.matrix, secondary=False, layers=[{"composition": "Al 100", "density": 2.7, "thickness_um": 1},
+                                                  {"composition": "C 62.5, H 4.2, O 33.3", "density": 1.38}])
+    m = matrix.Model(mx, ["Al-K"], core.excitation(cfg), "xraylib")
+    nm = next(iter(m.groups))
+    i0 = m.predict([{"Al": 1.0}], [float("inf")])[nm]
+    masses = [0.05, 0.27, 1.0]                                    # g/m2
+    rows = [{"name": "foil", "signal": 1e5, "err": 300.0, "amount": None}]
+    for g in masses:
+        rows.append({"name": str(g), "signal": 1e5 * m.predict([{"Al": 1.0}, pet], [g * 1e-4, float("inf")])[nm] / i0, "err": 20.0, "amount": g})
+    film = {"composition": "Al 100", "density": 2.7}
+    res = calibration.film_mass(rows, 0, cfg, "Al-K", film, film, {"composition": "C 62.5, H 4.2, O 33.3", "density": 1.38})
+    for o, g in zip(res["rows"][1:], masses):
+        assert abs(o["mass_g_m2"] - g) < 0.01 * g and abs(o["thickness_nm"] - g / 2.7 * 1000) < 0.01 * g / 2.7 * 1000
+    assert not res["monochromatic"] and 3.0 < res["saturation_mass_g_m2"] < 5.0
+    scaled = calibration.film_mass([dict(r, signal=r["signal"] * 0.8) if i else r for i, r in enumerate(rows)], 0, cfg, "Al-K", film, film,
+                                   {"composition": "C 62.5, H 4.2, O 33.3", "density": 1.38}, scale_to_known=True)
+    assert abs(scaled["scale_factor"] - 1.25) < 0.1               # films read 20 % low in signal -> model scaled up to the known masses
+    with pytest.raises(ValueError):
+        calibration.film_mass(rows, 5, cfg, "Al-K", film, film, film)

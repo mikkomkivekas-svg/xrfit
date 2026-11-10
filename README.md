@@ -134,6 +134,12 @@ Enable it once under **Settings → Pages → Deploy from a branch → `main` / 
 - Quantification: against a standard (`calibrate`/`quantify`) or from theory (`quantify theory`, relative atomic
   amounts = net rate / production cross section at `e0`; thin sample, no detector/matrix correction)
 
+### Thick reference
+
+For thin films of a single element, a bulk sample of the same material (for example an Al foil for Al films) can serve as the reference. Under **Thick reference** in the Calibration tab, choose the reference spectrum, the line (`Al-K`), and the film, reference and substrate compositions and densities. The film mass per area comes from the ratio of the film's signal to the reference signal, converted by the matrix model: for a film of mass m on the substrate the model gives R(m) = signal ÷ signal of the infinitely thick reference, which is inverted for every spectrum. The table gives the film mass (g/m²), the mass of the element, and the thickness (mass ÷ density).
+
+Position, air path, solid angle and detector response cancel in the ratio, so measure the reference with the same settings as the films. The scale of R(m) depends on how deep the excitation reaches, so it needs the real incident spectrum (Beam settings, for example the Rh L lines of the tube): for Al with the 5 kV Rh spectrum a thin film gives about 32 % of the foil signal per g/m², but a single 5 keV energy gives only 8.5 %. If you have a film of known mass, tick **Scale to films with a known amount**: the model is scaled to the known masses (least squares through the origin), which removes this uncertainty. A film whose signal is at or above the reference is not a thin film and is flagged.
+
 ## Soft-line example
 
 The **Si coating, soft lines** button loads a KETEK spectrum of a Si-containing coating on a substrate (5 kV Rh tube, 30 mm of air, 600 ns peaking time) with every setting filled in, as a reference for similar data: energy calibration (gain 0.00487 keV/channel from the Si K, Rh L and Ar K peaks, since the file calls itself uncalibrated), resolution (noise and Fano free), Si escape scale free, no long tail and a SNIP + cubic polynomial background (a long tail on top of SNIP counts the shelf twice and halves the Al Kα area), alpha and beta lines separate, the Rh L lines (Lα, Lβ1 and the weak Ll at 2.377 keV, which otherwise inflates S) marked as instrument lines, the 30 mm air path and 40 mm spot in the detector section, and the Ar K group added automatically. The fit gives a reduced χ² of about 4.6.

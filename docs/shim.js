@@ -2,7 +2,7 @@
    Static (GitHub Pages) mode: answers the page's /api/* calls from a Pyodide worker instead of a server. */
 (() => {
   const realFetch = window.fetch.bind(window);
-  const worker = new Worker("worker.js?v=f63fcbb3f5");
+  const worker = new Worker("worker.js?v=f3ed15ee07");
   const pending = new Map();
   let nextId = 1, isReady = false, fatal = null, onReady, onFail;
   const ready = new Promise((res, rej) => { onReady = res; onFail = rej; });

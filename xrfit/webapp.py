@@ -513,6 +513,25 @@ def api_calsignals(body, query):
             "zero": zero if sig.get("kind") != "area" else cfg.zero, "gain": gain if sig.get("kind") != "area" else cfg.gain}
 
 
+def api_calref(body, query):
+    """Film mass from the signal ratio to a thick reference (matrix model)."""
+    rows = []
+    for r in body.get("rows") or []:
+        amt = r.get("amount")
+        try:
+            amt = None if amt in (None, "") else float(amt)
+            rows.append({"name": r.get("name", ""), "signal": float(r["signal"]), "err": float(r["err"]), "amount": amt})
+        except (TypeError, ValueError, KeyError):
+            raise ApiError("A signal or amount is not a number.") from None
+    cfg = cfg_from_json(body.get("config"))
+    try:
+        return calibration.film_mass(rows, int(body.get("ref_index", -1)), cfg, str(body.get("line") or "").strip(),
+                                     body.get("film") or {}, body.get("reference") or {}, body.get("substrate") or {},
+                                     bool(body.get("scale_to_known")))
+    except (ValueError, matrix.MatrixError) as e:
+        raise ApiError(msg(e)) from e
+
+
 def api_calfit(body, query):
     rows = []
     for r in body.get("rows") or []:
@@ -528,7 +547,7 @@ def api_calfit(body, query):
         raise ApiError(msg(e)) from e
 
 
-POST_ROUTES = {"/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

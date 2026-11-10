@@ -128,3 +128,120 @@ def calibrate(rows, through_zero=False, weighted=False):
     fit["lod"] = lod
     fit["rmse_amount"] = (s_y / b) if s_y is not None else None
     return {"fit": fit, "rows": out}
+
+
+# ---------------------------------------------------------------- thick reference
+def _mass_fractions(text, label):
+    """'Al 100' or 'Al 52.9, O balance' -> {element: mass fraction} summing to 1."""
+    from . import matrix
+    ent = matrix.parse_composition(text)
+    fixed = sum(e["value"] for e in ent if e["mode"] == "fixed")
+    out = {}
+    for e in ent:
+        if e["mode"] == "unknown":
+            raise ValueError(f"{label}: the composition must be known (no ?).")
+        out[e["element"]] = e["value"] if e["mode"] == "fixed" else None
+    if any(v is None for v in out.values()):
+        rest = 1.0 - fixed
+        if rest < 0:
+            raise ValueError(f"{label}: the amounts add up to more than 100 %.")
+        for k, v in out.items():
+            if v is None:
+                out[k] = rest
+    tot = sum(out.values())
+    if not tot > 0:
+        raise ValueError(f"{label}: enter the composition.")
+    return {k: v / tot for k, v in out.items()}
+
+
+def _density(text, frac, rho, label):
+    from . import attenuation
+    if rho in (None, ""):
+        if len(frac) == 1:
+            return float(attenuation.density(next(iter(frac))))
+        raise ValueError(f"{label}: enter the density (g/cm³).")
+    rho = float(rho)
+    if not rho > 0:
+        raise ValueError(f"{label}: the density must be above 0.")
+    return rho
+
+
+def film_mass(rows, ref_index, cfg, line, film, ref, substrate, scale_to_known=False):
+    """Convert the signals of thin films into film mass per area, with a thick sample as the reference.
+
+    The signal of a film of mass m (g/cm2) on a substrate, divided by the signal of the infinitely thick
+    reference, is R(m) from the matrix model (geometry, tube spectrum, attenuation in the film). Geometry,
+    solid angle, air and detector cancel in the ratio. R(m) is inverted numerically for each film.
+    rows: [{name, signal, err, amount}], signal per second of live time (or counts, if every spectrum has the same live time).
+    film/ref/substrate: {composition, density}.  Returns dict with rows and the model scale."""
+    from . import matrix
+    if not 0 <= ref_index < len(rows):
+        raise ValueError("Choose which spectrum is the thick reference.")
+    r0 = rows[ref_index]
+    if not r0["signal"] > 0:
+        raise ValueError("The reference has no signal in this window.")
+    ffr = _mass_fractions(film.get("composition", ""), "Film")
+    rfr = _mass_fractions(ref.get("composition", ""), "Reference")
+    sfr = _mass_fractions(substrate.get("composition", ""), "Substrate")
+    rho_f = _density(film.get("composition"), ffr, film.get("density"), "Film")
+    rho_r = _density(ref.get("composition"), rfr, ref.get("density"), "Reference")
+    rho_s = _density(substrate.get("composition"), sfr, substrate.get("density"), "Substrate")
+    sym = str(line).split("-")[0]
+    if sym not in ffr or sym not in rfr:
+        raise ValueError(f"The film and the reference must both contain {sym}.")
+    mx = dict(cfg.matrix or {})
+    mx.update({"secondary": False, "layers": [
+        {"composition": film["composition"], "density": rho_f, "thickness_um": 1.0},
+        {"composition": substrate["composition"], "density": rho_s}]})
+    exc = core.excitation(cfg)
+    model = matrix.Model(mx, [line], exc, cfg.xs_source)
+    name = next(iter(model.groups))
+    i_ref = model.predict([rfr], [float("inf")])[name]
+    if not i_ref > 0:
+        raise ValueError("The model predicts no signal from the reference. Check the line and the composition.")
+    grid = np.logspace(-8, -2.0, 90)                                 # film mass, g/cm2 (1e-4 g/m2 ... 100 g/m2)
+    rr = np.array([model.predict([ffr, sfr], [m, float("inf")])[name] for m in grid]) / i_ref
+    if np.any(np.diff(rr) <= 0):
+        keep = np.concatenate([[True], np.diff(rr) > 0])
+        grid, rr = grid[keep], rr[keep]
+    r_max = float(rr[-1])
+    a = rr[0] / grid[0]
+    def invert(R):
+        if R <= 0:
+            return 0.0
+        if R < rr[0]:
+            return R / a
+        return float(np.exp(np.interp(np.log(R), np.log(rr), np.log(grid))))
+    sc = float(grid[np.searchsorted(rr, 0.632 * r_max)]) if r_max > 0.632 else float("nan")
+    wsym = ffr[sym]
+    out = []
+    for i, r in enumerate(rows):
+        if i == ref_index:
+            out.append({"name": r["name"], "is_reference": True, "ratio": 1.0})
+            continue
+        R = r["signal"] / r0["signal"]
+        eR = R * math.hypot(r["err"] / r["signal"] if r["signal"] else 0.0, r0["err"] / r0["signal"])
+        m = invert(R)
+        d = (invert(R * 1.001) - invert(R * 0.999)) / (0.002 * R) if R > 0 else 1.0 / a
+        out.append({"name": r["name"], "is_reference": False, "ratio": R, "ratio_err": eR, "model_mass_g_m2": m * 1e4,
+                    "model_mass_err_g_m2": abs(d) * eR * 1e4, "above_reference": bool(R >= r_max),
+                    "known": r.get("amount")})
+    factor, n_known = 1.0, 0
+    if scale_to_known:
+        pairs = [(o["known"], o["model_mass_g_m2"]) for o in out if not o["is_reference"] and o.get("known") is not None and o["model_mass_g_m2"] > 0]
+        n_known = len(pairs)
+        if not pairs:
+            raise ValueError("Enter known film masses (g/m²) for at least one film to scale the model.")
+        kn = np.array([p[0] for p in pairs], float); md = np.array([p[1] for p in pairs], float)
+        factor = float(np.sum(kn * md) / np.sum(md * md))   # least squares through the origin, known = factor * model
+    for o in out:
+        if o["is_reference"]:
+            continue
+        o["mass_g_m2"] = o["model_mass_g_m2"] * factor
+        o["mass_err_g_m2"] = o["model_mass_err_g_m2"] * factor
+        o["element_g_m2"] = o["mass_g_m2"] * wsym
+        o["thickness_nm"] = o["mass_g_m2"] / rho_f * 1000.0        # g/m2 divided by g/cm3 is 1e-6 m3/m2 = 1000 nm per unit
+    return {"rows": out, "line": name, "element": sym, "element_fraction": wsym, "film_density": rho_f,
+            "ratio_at_saturation": r_max, "saturation_mass_g_m2": sc * 1e4 if sc == sc else None,
+            "slope_ratio_per_g_m2": a * 1e-4, "scale_factor": factor, "n_known": n_known,
+            "monochromatic": not bool(cfg.beam)}
