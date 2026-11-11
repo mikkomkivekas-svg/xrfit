@@ -291,6 +291,16 @@ table.data tr:hover td { background: var(--surface-2); }
           <div class="field"><label for="a-in">Beam angle to surface (°)</label><input type="number" id="a-in" min="1" max="90" step="any"></div>
           <div class="field"><label for="a-out">Detector angle to surface (°)</label><input type="number" id="a-out" min="1" max="90" step="any"></div>
         </div>
+        <details style="margin-top:6px"><summary style="cursor:pointer;color:var(--text-2)">Set the angles from the tube and detector positions</summary>
+          <p class="hint">Measured from the sample normal, with tube, normal and detector in one plane. This sets the beam and detector angles above and the scattering angle (Beam section) together, so the three stay consistent.</p>
+          <div class="grid2">
+            <div class="field"><label for="g-tube">Tube from the normal (°)</label><input type="number" id="g-tube" min="0" max="89" step="any" placeholder="0 = along the normal"></div>
+            <div class="field"><label for="g-det">Detector from the normal (°)</label><input type="number" id="g-det" min="0" max="89" step="any" placeholder="e.g. 47"></div>
+            <div class="field"><label for="g-side">Position</label><select id="g-side"><option value="opp">Opposite sides of the normal</option><option value="same">Same side of the normal</option></select></div>
+            <div class="field"><label>&nbsp;</label><button class="btn" id="g-set">Set angles</button></div>
+          </div>
+          <div id="g-out" class="hint"></div>
+        </details>
         <details style="margin-top:8px"><summary style="cursor:pointer;color:var(--text-2)">Detector and path</summary>
           <div class="grid2" style="margin-top:8px">
             <div class="field"><label for="d-si">Si thickness (mm)</label><input type="number" id="d-si" min="0" step="any"></div>
@@ -966,6 +976,15 @@ $("#mx-fitshare").onchange = e => { mx().fit_line_share = e.target.checked; };
 $("#mx-fitair").onchange = e => { mx().fit_air = e.target.checked; };
 for (const [id, key] of [["a-in", "alpha_in"], ["a-out", "alpha_out"]]) $("#" + id).addEventListener("input", e => { mx()[key] = e.target.value; });
 for (const [id, key] of [["d-si", "si_mm"], ["d-be", "be_um"], ["d-air", "air_mm"], ["d-spot", "spot_mm"], ["d-prof", "spot_profile"]]) $("#" + id).addEventListener("input", e => { mx().detector[key] = e.target.value; if (key === "air_mm") markStale(); });
+$("#g-set").onclick = () => {
+  const t = parseFloat($("#g-tube").value || "0"), d = parseFloat($("#g-det").value), same = $("#g-side").value === "same", out = $("#g-out");
+  if (!(t >= 0 && t < 90) || !(d >= 0 && d < 90)) { out.textContent = "Enter both angles between 0 and 89 degrees from the sample normal."; return; }
+  const theta = same ? 180 - Math.abs(t - d) : 180 - (t + d);
+  if (!(theta > 0 && theta < 180)) { out.textContent = "These positions give a scattering angle of 0 or 180 degrees. Check the angles."; return; }
+  const m = mx(); m.alpha_in = 90 - t; m.alpha_out = 90 - d; S.cfg.scatter_angle = theta;
+  $("#a-in").value = m.alpha_in; $("#a-out").value = m.alpha_out; $("#angle").value = theta;
+  out.textContent = `Beam ${m.alpha_in}° and detector ${m.alpha_out}° to the surface, scattering angle ${theta}°.`; markStale(); plot.draw();
+};
 $("#sp-run").onclick = async () => {
   const out = $("#sp-out"), d = mx().detector;
   try {

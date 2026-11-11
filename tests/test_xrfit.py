@@ -492,3 +492,15 @@ def test_thick_reference_inverts_the_model():
     assert abs(scaled["scale_factor"] - 1.25) < 0.1               # films read 20 % low in signal -> model scaled up to the known masses
     with pytest.raises(ValueError):
         calibration.film_mass(rows, 5, cfg, "Al-K", film, film, film)
+
+
+def test_geometry_command_sets_all_three_angles():
+    from xrfit import cli
+    sh = cli.Shell()
+    sh.onecmd("matrix geometry 0 47")
+    mx = sh.cfg.matrix
+    assert mx["alpha_in"] == 90 and mx["alpha_out"] == 43 and sh.cfg.scatter_angle == 133
+    sh.onecmd("matrix geometry 45 45")
+    assert sh.cfg.scatter_angle == 90 and mx["alpha_in"] == 45
+    sh.onecmd("matrix geometry 30 20 same")
+    assert sh.cfg.scatter_angle == 170

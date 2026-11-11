@@ -331,7 +331,7 @@ def api_example(body, query):
             "elements": ["Al-K", "Si-K", "S-K", "Rh-La1", "Rh-Lb1", "Rh-Ll"], "instrument": ["Rh-La1", "Rh-Lb1", "Rh-Ll"],
             # Alpha and beta lines are fitted separately (default). No incident spectrum table: at 5 kV the Rh L scatter
             # peaks lie within 15 eV of the Rh L fluorescence lines and cannot be separated, so the Rh L lines are fitted as lines.
-            "e0": 5.0, "zero": 0.0, "gain": 0.00487, "emin": 0.8, "emax": 3.5,
+            "e0": 5.0, "scatter_angle": 133.0, "zero": 0.0, "gain": 0.00487, "emin": 0.8, "emax": 3.5,
             "noise": 0.047, "fano": 0.122, "tail_frac": 0.0, "step_frac": 0.0,
             # Si escape peaks: calculated ratio (1.1 % at Rh L) times a fitted scale of about 1.1.
             # No long tail: it is added on top of a SNIP curve that already follows the shelf, which lifts the baseline under
@@ -340,7 +340,8 @@ def api_example(body, query):
             "free": ["zero", "gain", "noise", "fano", "esc_scale"],
             "background": "snip+poly", "poly_order": 3, "snip_width": 24, "sum_peaks": False,
             "matrix": {"layers": [{"name": "", "composition": "", "density": "", "thickness_um": "", "fit_thickness": False, "reference": ""}],
-                       "alpha_in": 45.0, "alpha_out": 45.0, "k": "", "fit_k": True, "secondary": True,
+                       # Tube along the sample normal, detector 47 deg from it: 90 and 43 deg to the surface, 133 deg scattering angle.
+                       "alpha_in": 90.0, "alpha_out": 43.0, "k": "", "fit_k": True, "secondary": True,
                        # Detector side: 0.5 mm Si, 30 mm of air to the window (this sets the automatic Ar K group), 40 mm spot averaged
                        # over the solid angle and the slanted air path. The CH window is not entered: add it under Filters before the detector.
                        "detector": {"si_mm": 0.5, "be_um": 0, "air_mm": 30, "spot_mm": 40, "spot_profile": "uniform", "filters": []}}})

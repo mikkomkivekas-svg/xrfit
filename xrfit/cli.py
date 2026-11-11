@@ -154,6 +154,7 @@ class Shell(cmd.Cmd):
         "matrix layer <i> comp \"Fe 70; Cr ?; O balance\"   composition: wt %, ? = find from lines, balance = rest; or a formula\n"\
         "matrix layer <i> density <g/cm3> | thickness <um> [fit] | name <text>\n"\
         "matrix angles <beam deg> <detector deg>   angles to the surface (default 45 45)\n"\
+        "matrix geometry <tube deg> <detector deg> [same]   positions from the sample normal; sets the two angles and the scattering angle\n"\
         "matrix k <value|fit>            instrument factor (flux x solid angle), or fit it\n"\
         "matrix secondary on|off         secondary excitation (default on)\n"\
         "matrix detector si=0.5 be=0 air=0   Si thickness (mm), Be window (um), air path (mm)\n"\
@@ -182,6 +183,13 @@ class Shell(cmd.Cmd):
                 else: raise ValueError("layer <i> comp|density|thickness|name ...")
             elif t[:1] == ["angles"]:
                 mx["alpha_in"], mx["alpha_out"] = float(t[1]), float(t[2])
+            elif t[:1] == ["geometry"]:
+                tu, de = float(t[1]), float(t[2]); same = "same" in t[3:]
+                if not (0 <= tu < 90 and 0 <= de < 90): raise ValueError("angles from the normal must be from 0 to below 90")
+                th = 180 - abs(tu - de) if same else 180 - (tu + de)
+                if not 0 < th < 180: raise ValueError("these positions give a scattering angle of 0 or 180 degrees")
+                mx["alpha_in"], mx["alpha_out"], self.cfg.scatter_angle = 90 - tu, 90 - de, th
+                print(f"  beam {mx['alpha_in']:g} and detector {mx['alpha_out']:g} deg to the surface, scattering angle {th:g} deg")
             elif t[:1] == ["k"]:
                 if t[1] == "fit": mx["fit_k"] = True
                 else: mx["k"], mx["fit_k"] = float(t[1]), False

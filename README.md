@@ -36,6 +36,10 @@ Fits a straight line `signal = a + b × amount` to standards of known amount (fi
 
 Options: force the line through zero, and weight by counting error. The result downloads as a table (CSV) and as calibration constants (JSON). The energy window uses the zero and gain you enter, which start from the Elements settings.
 
+## Geometry
+
+Three angles describe the geometry, and xrfit keeps them as separate settings: the beam angle and the detector angle to the sample surface (Sample matrix; they set the path lengths in the sample), and the scattering angle (Beam; it sets the Compton shift). With tube, sample normal and detector in one plane, the position angles from the normal give them directly: beam = 90° − tube angle, detector = 90° − detector angle, and the scattering angle is 180° − (tube angle + detector angle) when tube and detector are on opposite sides of the normal, or 180° − |difference| on the same side. **Set the angles from the tube and detector positions** in the Matrix tab (or `matrix geometry <tube> <detector> [same]` in the shell) fills in all three. For a tube along the normal and a detector 47° from it: beam 90°, detector 43°, scattering angle 133°, which is the soft-line example's geometry. The defaults (45°, 45°, 90°) fit no particular instrument, so set them before using the matrix model.
+
 ## Beam spot size
 
 A broad excitation spot is not seen uniformly. Fluorescence from the edge of a 40 mm spot reaches the detector through a longer, slanted air path and at a smaller solid angle than fluorescence from the centre. Under **Sample matrix → Detector and path**, set the **beam spot diameter** (a uniform disc, or the FWHM of a Gaussian) and the matrix calculation averages the air absorption and solid angle over the spot: each ring of radius ρ is weighted by its share of the emitted light, with a solid-angle factor (d/r)³ and air transmission exp(−μr), where r = √(d² + ρ²) and d is the air path. A spot of 0 reproduces the earlier point-source model exactly.
