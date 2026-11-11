@@ -504,3 +504,17 @@ def test_geometry_command_sets_all_three_angles():
     assert sh.cfg.scatter_angle == 90 and mx["alpha_in"] == 45
     sh.onecmd("matrix geometry 30 20 same")
     assert sh.cfg.scatter_angle == 170
+
+
+def test_simulator_filters():
+    from xrfit import simulate
+    mx = {"alpha_in": 90, "alpha_out": 43, "layers": [{"composition": "Si 46.7, O balance", "density": 1.2, "thickness_um": 1},
+          {"composition": "C 62.5, H 4.2, O balance", "density": 1.38}],
+          "detector": {"si_mm": 0.5, "air_mm": 30, "spot_mm": 40}}
+    r = simulate.simulate({"tube": {"anode": "Rh", "kv": 5}, "matrix": mx, "scatter_angle": 133, "emax": 4, "input_kcps": 50,
+                           "scenarios": [{"name": "a"}, {"name": "b", "beam_filters": [{"material": "Kapton", "thickness_um": 12.5}]},
+                                         {"name": "c", "det_filters": [{"material": "Kapton", "thickness_um": 12.5}]}]})
+    a, b, c = r["scenarios"]
+    assert abs(a["total_cps"] - 50000) < 1
+    assert b["total_cps"] < a["total_cps"] and c["lines"]["Si K"] < 0.5 * a["lines"]["Si K"]
+    assert len(r["energy"]) == len(a["spectrum"])

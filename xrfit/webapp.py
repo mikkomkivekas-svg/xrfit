@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 
 import numpy as np
 
-from . import attenuation, calibration, core, demo, io_ketek, lines, matrix, tube, xdata
+from . import attenuation, calibration, simulate, core, demo, io_ketek, lines, matrix, tube, xdata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -450,6 +450,14 @@ def api_batch(body, query):
     return clean({"groups": names, "rows": rows})
 
 
+def api_simulate(body, query):
+    """Spectrum seen by the detector for several filter options (no fitting)."""
+    try:
+        return simulate.simulate(body)
+    except (ValueError, KeyError, matrix.MatrixError) as e:
+        raise ApiError(str(e).strip("'\"")) from None
+
+
 def api_spot(body, query):
     """Detection efficiency of soft lines versus the air distance, with the beam spot averaged in."""
     try:
@@ -548,7 +556,7 @@ def api_calfit(body, query):
         raise ApiError(msg(e)) from e
 
 
-POST_ROUTES = {"/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/simulate": api_simulate, "/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

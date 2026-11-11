@@ -11,7 +11,7 @@ const ready = (async () => {
   postMessage({ type: "status", text: "Loading numpy and scipy…" });
   await py.loadPackage(["numpy", "scipy"]);
   postMessage({ type: "status", text: "Loading xrfit…" });
-  const zip = await (await fetch("xrfit-py.zip?v=e80873b08f")).arrayBuffer();
+  const zip = await (await fetch("xrfit-py.zip?v=2db86240ae")).arrayBuffer();
   py.unpackArchive(zip, "zip");
   await py.runPythonAsync(`
 import sys, json

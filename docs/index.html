@@ -402,18 +402,20 @@ table.data tr:hover td { background: var(--surface-2); }
         <button class="tab" role="tab" aria-selected="false" data-pane="lines" id="t-lines">Line data</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="batch" id="t-batch">Batch</button>
         <button class="tab" role="tab" aria-selected="false" data-pane="cal" id="t-cal">Calibration</button>
+        <button class="tab" role="tab" aria-selected="false" data-pane="sim" id="t-sim">Simulator</button>
       </div>
       <div class="pane" id="pane-areas" role="tabpanel" aria-labelledby="t-areas"></div>
       <div class="pane" id="pane-matrix" role="tabpanel" aria-labelledby="t-matrix" hidden></div>
       <div class="pane" id="pane-lines" role="tabpanel" aria-labelledby="t-lines" hidden></div>
       <div class="pane" id="pane-batch" role="tabpanel" aria-labelledby="t-batch" hidden></div>
       <div class="pane" id="pane-cal" role="tabpanel" aria-labelledby="t-cal" hidden></div>
+      <div class="pane" id="pane-sim" role="tabpanel" aria-labelledby="t-sim" hidden></div>
     </section>
   </main>
 </div>
 <div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
 
-<script src="shim.js?v=e80873b08f"></script>
+<script src="shim.js?v=2db86240ae"></script>
 <script>
 "use strict";
 /* ============================ helpers ============================ */
@@ -1006,7 +1008,7 @@ $("#mx-run").onclick = async () => {
   try {
     S.matrixResult = await api("/api/matrix", { matrix: mx() }); S.matrixStale = false;
     document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x.dataset.pane === "matrix")));
-    for (const id of ["areas", "matrix", "lines", "batch", "cal"]) $("#pane-" + id).hidden = id !== "matrix";
+    for (const id of ["areas", "matrix", "lines", "batch", "cal", "sim"]) $("#pane-" + id).hidden = id !== "matrix";
     renderMatrixPane();
     const K = S.matrixResult.k; if (S.matrixResult.k_fitted) setStatus(`Matrix calculation done. Fitted K = ${fmtSig(K, 4)}.`); else setStatus("Matrix calculation done.");
   } catch (e) { err.textContent = e.message; err.hidden = false; }
@@ -1341,10 +1343,102 @@ function drawCalRef() {
     h("a", { class: "btn", href: URL.createObjectURL(new Blob([csv + "\n"], { type: "text/csv" })), download: "xrfit-film-mass.csv", text: "Download table (CSV)" }));
 }
 
+
+/* ---------- simulator tab ---------- */
+const SIM = { anode: "Rh", kv: 5, lineShare: 0.1, sample: [{ composition: "Si 46.7, O balance", density: "1.2", thickness_um: "1" }, { composition: "C 62.5, H 4.2, O balance", density: "1.38", thickness_um: "" }],
+  tube: 0, det: 47, scat: 133, air: 30, spot: 40, si: 0.5, be: 0, kcps: 50, emax: 4, log: false, ar: 1, result: null, hide: {},
+  rows: [{ name: "No filters", bm: "", bt: "", dm: "", dt: "" }, { name: "Kapton 12.5 µm on tube", bm: "Kapton", bt: "12.5", dm: "", dt: "" },
+         { name: "Polypropylene 4 µm at detector", bm: "", bt: "", dm: "Polypropylene", dt: "4" }, { name: "CNT 15 nm at detector", bm: "", bt: "", dm: "CNT", dt: "0.015" }] };
+function renderSimPane() {
+  const p = $("#pane-sim"); p.replaceChildren();
+  const num = (key, label, w = 70) => h("label", { class: "hint", style: "display:flex;gap:6px;align-items:center;margin:0" }, label,
+    h("input", { type: "number", step: "any", value: SIM[key], style: `width:${w}px`, onchange: e => { SIM[key] = e.target.value === "" ? "" : +e.target.value; } }));
+  const txt = (o, key, ph, w) => h("input", { type: "text", value: o[key], placeholder: ph, list: "sim-mats", style: `width:${w}px`, oninput: e => { o[key] = e.target.value; } });
+  const sampleBox = h("div", {});
+  const drawSample = () => {
+    sampleBox.replaceChildren(...SIM.sample.map((L, i) => h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;margin-bottom:4px;align-items:center" },
+      h("span", { class: "hint", style: "margin:0;width:110px", text: i < SIM.sample.length - 1 ? `Layer ${i + 1}` : `Layer ${i + 1} (bulk)` }),
+      txt(L, "composition", "composition, wt %", 210), txt(L, "density", "g/cm³", 60),
+      i < SIM.sample.length - 1 ? txt(L, "thickness_um", "µm", 60) : null,
+      SIM.sample.length > 1 ? h("button", { class: "btn", onclick: () => { SIM.sample.splice(i, 1); drawSample(); } }, "Remove") : null)));
+  };
+  drawSample();
+  const rowsBox = h("div", {});
+  const drawRows = () => {
+    const head = h("tr", {}, ...["Show", "Option", "Between tube and sample", "µm", "Between sample and detector", "µm", ""].map(t => h("th", { text: t })));
+    const body = SIM.rows.map((r, i) => h("tr", {}, h("td", {}, h("input", { type: "checkbox", checked: !SIM.hide[i], "aria-label": "Show " + r.name, onchange: e => { SIM.hide[i] = !e.target.checked; if (SIM.result) drawSim(); } })),
+      h("td", {}, txt(r, "name", "name", 220)), h("td", {}, txt(r, "bm", "none", 150)), h("td", {}, txt(r, "bt", "", 76)), h("td", {}, txt(r, "dm", "none", 150)), h("td", {}, txt(r, "dt", "", 76)),
+      h("td", {}, SIM.rows.length > 1 ? h("button", { class: "btn", onclick: () => { SIM.rows.splice(i, 1); SIM.hide = {}; drawRows(); } }, "Remove") : null)));
+    rowsBox.replaceChildren(h("table", { class: "data" }, h("thead", {}, head), h("tbody", {}, ...body)));
+  };
+  drawRows();
+  const out = h("div", { id: "sim-out", style: "margin-top:12px" });
+  const go = h("button", { class: "btn primary", onclick: async () => {
+    go.disabled = true; out.replaceChildren(h("div", { class: "hint", text: "Calculating…" }));
+    const fl = (m, t) => m && String(m).trim() ? [{ material: String(m).trim(), thickness_um: t }] : [];
+    try {
+      const body = { tube: { anode: SIM.anode, kv: +SIM.kv, line_share: +SIM.lineShare },
+        matrix: { alpha_in: 90 - +SIM.tube, alpha_out: 90 - +SIM.det, layers: SIM.sample.map(L => ({ composition: L.composition, density: L.density, thickness_um: L.thickness_um })),
+          detector: { si_mm: +SIM.si, be_um: +SIM.be, air_mm: +SIM.air, spot_mm: +SIM.spot, spot_profile: "uniform" } },
+        scatter_angle: +SIM.scat, emax: +SIM.emax, input_kcps: +SIM.kcps, ar_scale: +SIM.ar,
+        detector: { gain: 0.00487, zero: 0, noise: 0.047, fano: 0.122, esc_scale: 1.1 },
+        scenarios: SIM.rows.map(r => ({ name: r.name, beam_filters: fl(r.bm, r.bt), det_filters: fl(r.dm, r.dt) })) };
+      SIM.result = await api("/api/simulate", body); drawSim();
+    } catch (e) { out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+    go.disabled = false; } }, "Calculate");
+  p.append(
+    h("p", { class: "hint", text: "Calculates the spectrum the detector sees from the tube, sample, filters, air and detector. No fitting. The first option sets the scale (its total input rate); every other option uses the same scale, so the differences are what the filters do. Peaks are plain Gaussians, so use it to compare filters, not to read absolute rates." }),
+    h("datalist", { id: "sim-mats" }, ...["Kapton", "Mylar", "Polypropylene", "CNT", "Be", "Al", "Ti", "Graphene", "Rh", "Mo", "Zr", "Cu", "Ag"].map(v => h("option", { value: v }))),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 16px;align-items:center" },
+      h("label", { class: "hint", style: "margin:0;display:flex;gap:6px;align-items:center" }, "Anode", h("input", { type: "text", value: SIM.anode, style: "width:44px", oninput: e => { SIM.anode = e.target.value.trim(); } })),
+      num("kv", "Tube voltage (kV)"), num("lineShare", "Anode line share", 60), num("tube", "Tube angle from normal (°)", 56), num("det", "Detector angle from normal (°)", 56), num("scat", "Scattering angle (°)", 56)),
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:8px" },
+      num("air", "Air to detector (mm)", 56), num("spot", "Beam spot (mm)", 56), num("si", "Si thickness (mm)", 56), num("be", "Detector Be window (µm)", 56), num("kcps", "Input rate of option 1 (kcps)", 60), num("emax", "Plot to (keV)", 56), num("ar", "Air argon scale", 56)),
+    h("h3", { text: "Sample" }), sampleBox, h("button", { class: "btn", onclick: () => { SIM.sample.splice(SIM.sample.length - 1, 0, { composition: "", density: "", thickness_um: "" }); drawSample(); } }, "Add layer above the bulk"),
+    h("h3", { text: "Filter options" }), rowsBox,
+    h("div", { class: "row", style: "gap:8px;margin-top:6px" }, h("button", { class: "btn", onclick: () => { SIM.rows.push({ name: "Option " + (SIM.rows.length + 1), bm: "", bt: "", dm: "", dt: "" }); drawRows(); } }, "Add option"), go),
+    out);
+}
+function drawSim() {
+  const out = $("#sim-out"), R = SIM.result; if (!out || !R) return;
+  const NS = "http://www.w3.org/2000/svg", el = (t, a = {}, ...k) => { const e = document.createElementNS(NS, t); for (const [x, v] of Object.entries(a)) e.setAttribute(x, v); k.forEach(c => e.append(c)); return e; };
+  const cols = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--text-2)", "var(--text-3)"];
+  const W = 760, H = 380, m = { l: 62, r: 16, t: 12, b: 40 }, E = R.energy;
+  const sc = R.scenarios.map((s, i) => ({ s, i })).filter(o => !SIM.hide[o.i]);
+  const ymax = Math.max(1e-9, ...sc.map(o => Math.max(...o.s.spectrum))), ymin = Math.max(ymax * 1e-5, 1e-9);
+  const xmin = 0.5, xmax = E[E.length - 1];
+  const X = v => m.l + (v - xmin) / (xmax - xmin) * (W - m.l - m.r);
+  const lg = SIM.log, Y = v => lg ? H - m.b - (Math.log10(Math.max(v, ymin)) - Math.log10(ymin)) / (Math.log10(ymax) - Math.log10(ymin)) * (H - m.t - m.b) : H - m.b - v / ymax * (H - m.t - m.b);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "max-width:860px;display:block", role: "img", "aria-label": "Simulated spectra for each filter option" });
+  const yt = []; if (lg) { for (let v = Math.pow(10, Math.ceil(Math.log10(ymin))); v <= ymax; v *= 10) yt.push(v); } else { const st = ymax / 5, mag = Math.pow(10, Math.floor(Math.log10(st))), nice = [1, 2, 5, 10].map(q => q * mag).find(q => q >= st); for (let v = 0; v <= ymax; v += nice) yt.push(v); }
+  for (const v of yt) { svg.append(el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "var(--grid)" })); svg.append(el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end", fill: "var(--text-3)", "font-size": 11 }, document.createTextNode(fmtSig(v, 3)))); }
+  for (let v = Math.ceil(xmin); v <= xmax; v += 0.5) { svg.append(el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: "var(--grid)" })); svg.append(el("text", { x: X(v), y: H - m.b + 16, "text-anchor": "middle", fill: "var(--text-3)", "font-size": 11 }, document.createTextNode(String(v)))); }
+  svg.append(el("text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12 }, document.createTextNode("Energy (keV)")));
+  svg.append(el("text", { x: 14, y: (m.t + H - m.b) / 2, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})` }, document.createTextNode("Counts per second per channel")));
+  for (const { s, i } of sc) {
+    let d = ""; E.forEach((e, k) => { if (e >= xmin) d += (d ? "L" : "M") + X(e).toFixed(1) + " " + Y(s.spectrum[k]).toFixed(1); });
+    svg.append(el("path", { d, fill: "none", stroke: cols[i % cols.length], "stroke-width": 1.6, "stroke-linejoin": "round" }));
+  }
+  const key = h("div", { class: "hint", style: "display:flex;gap:6px 18px;flex-wrap:wrap;margin:4px 0 0 " + m.l + "px" },
+    ...sc.map(({ s, i }) => h("span", {}, h("span", { style: "color:" + cols[i % cols.length] }, "━ "), s.name)));
+  const keys = []; R.scenarios.forEach(s => Object.keys(s.lines).forEach(k => { if (!keys.includes(k)) keys.push(k); }));
+  const base = R.scenarios[0];
+  const cell = (v, b) => h("td", { class: "n", text: v ? `${v < 100 ? fmtSig(v, 2) : fmtInt(v)}${b ? `  (${(100 * v / b).toFixed(0)} %)` : ""}` : "–" });
+  const tbl = h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Counts per second" }), ...R.scenarios.map(s => h("th", { text: s.name })))),
+    h("tbody", {}, ...keys.map(k => h("tr", {}, h("td", { text: k }), ...R.scenarios.map((s, i) => cell(s.lines[k], i ? base.lines[k] : 0)))),
+      h("tr", {}, h("td", { text: "Total" }), ...R.scenarios.map((s, i) => cell(s.total_cps, i ? base.total_cps : 0)))));
+  const csv = ["energy_keV," + R.scenarios.map(s => JSON.stringify(s.name)).join(",")].concat(E.map((e, k) => e + "," + R.scenarios.map(s => s.spectrum[k]).join(","))).join("\n");
+  out.replaceChildren(h("div", { class: "row", style: "gap:14px;margin-bottom:6px;align-items:center" },
+    h("label", { class: "hint", style: "margin:0" }, h("input", { type: "checkbox", checked: SIM.log, onchange: e => { SIM.log = e.target.checked; drawSim(); } }), " Logarithmic scale")),
+    svg, key, h("div", { style: "overflow-x:auto;margin-top:10px" }, tbl),
+    h("p", { class: "hint", text: "Percentages are relative to the first option. Rayleigh and Compton are scattered tube photons (lines and continuum). Ar K is the argon of the air path, excited by the beam, so its level is approximate; scale it with the air argon field." }),
+    h("div", { class: "row", style: "margin-top:6px" }, h("a", { class: "btn", href: URL.createObjectURL(new Blob([csv + "\n"], { type: "text/csv" })), download: "xrfit-simulation.csv", text: "Download spectra (CSV)" })));
+}
+
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
-  for (const id of ["areas", "matrix", "lines", "batch", "cal"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
+  for (const id of ["areas", "matrix", "lines", "batch", "cal", "sim"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
   if (t.dataset.pane === "cal") renderCalSetup();
   if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
 }));
@@ -1407,7 +1501,7 @@ addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "En
 /* ============================== boot ============================== */
 async function boot() {
   const th = store.get("xrfit-theme") || "auto"; plot.init(); applyTheme(THEMES.includes(th) ? th : "auto");
-  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderCalPane(); renderAreas(); renderMatrixPane(); renderLegend();
+  renderParams(); syncInputs(); renderLinesPane(); renderBatchPane(); renderCalPane(); renderSimPane(); renderAreas(); renderMatrixPane(); renderLegend();
   try {
     const d = await api("/api/elements"); $("#el-list").replaceChildren(...d.elements.map(e => h("option", { value: e.symbol, label: "Z = " + e.Z })));
     const s = await api("/api/session"); if (s.spectrum) applySpectrum(s.spectrum, false);
