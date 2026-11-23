@@ -962,8 +962,8 @@ function renderLayers() {
 $("#n-layers").onchange = e => {
   let n = Math.round(+e.target.value); if (!(n >= 1)) n = 1; if (n > 6) n = 6;
   const ls = mx().layers;
-  while (ls.length < n) ls.unshift(newLayer());   // new layers go on top, so the substrate keeps its place at the end
-  while (ls.length > n) ls.shift();
+  while (ls.length < n) ls.push(newLayer());   // new layers are added at the bottom, below the existing ones
+  while (ls.length > n) ls.pop();               // and removed from the bottom
   renderLayers();
 };
 function syncMatrix() {
