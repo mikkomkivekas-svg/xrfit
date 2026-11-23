@@ -1345,6 +1345,7 @@ function renderCalRef() {
     const fsn = calFilmSub();
     if (!fsn) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Set at least two layers under Sample matrix: the film on top and the substrate last." })); return; }
     if (REF.idx < 0 || !CAL.rows[REF.idx]) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Choose the thick reference spectrum first." })); return; }
+    if (CAL.rows.length < 2) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Only the reference is in the list. Add the film spectra (for example your silicone-on-paper samples) in step 1 and press Read spectra again." })); return; }
     const line = (REF.line || "").trim() || (CAL.kind === "area" && CAL.group ? CAL.group.split("-")[0] + "-K" : "");
     try {
       const k = r => CAL.normalize || !(r.live_time > 0) ? 1 : 1 / r.live_time;   // counts per second of live time
