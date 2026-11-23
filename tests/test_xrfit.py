@@ -518,3 +518,13 @@ def test_simulator_filters():
     assert abs(a["total_cps"] - 50000) < 1
     assert b["total_cps"] < a["total_cps"] and c["lines"]["Si K"] < 0.5 * a["lines"]["Si K"]
     assert len(r["energy"]) == len(a["spectrum"])
+
+
+def test_calibration_preloaded_references():
+    from xrfit import webapp
+    refs = webapp.api_calrefs({}, {})["refs"]
+    assert [r["name"] for r in refs] == ["Al 600 ns", "Al 100 ns", "Si 600 ns", "Si 100 ns"]
+    out = webapp.api_calsignals({"files": [{"builtin": "si600", "name": "x"}, {"builtin": "al600", "name": "y"}],
+                                 "config": {}, "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
+    r = {x["name"]: x["signal"] for x in out["rows"]}
+    assert r["Si 600 ns"] > 5 * r["Al 600 ns"] * 0.5 and r["Si 600 ns"] > 1e6

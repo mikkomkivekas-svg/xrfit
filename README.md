@@ -200,3 +200,6 @@ subject to their original sources' terms and should be cited accordingly.
 ## Simulator tab
 
 Calculates the spectrum the detector sees for a tube (anode, kV), a layered sample, the air path and the detector, with no fitting. Each row of the filter table is one option: a filter between tube and sample and/or one between sample and detector (presets such as Kapton, Mylar, Polypropylene, CNT, Be, Al; any element or formula works). The first option is scaled to the chosen input rate and the others use the same instrument factor, so the plot and the table (counts per second and the percentage of option 1 for Si K, Al K, Rayleigh, Compton, argon) show what each filter does. Peaks are plain Gaussians with the Si escape; fluorescence is primary excitation only; scatter uses the Elam coherent and incoherent coefficients with a (3/4)(1+cos²θ) angular factor; argon of the air is a rough estimate (the "air argon scale" field). Use it to compare filters, not to read absolute rates.
+
+### Preloaded reference spectra (Calibration tab)
+The Calibration tab has a drop-down of bundled bulk references (Al 600 ns, Al 100 ns, Si 600 ns, Si 100 ns: Al foil and Si wafer, 5 kV Rh tube, 30 mm air, KETEK AXAS). Pick one and press Add, and add your own files with the file chooser; both kinds are read together with "Read spectra".

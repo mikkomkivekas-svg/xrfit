@@ -415,7 +415,7 @@ table.data tr:hover td { background: var(--surface-2); }
 </div>
 <div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
 
-<script src="shim.js?v=2db86240ae"></script>
+<script src="shim.js?v=6291bcaddf"></script>
 <script>
 "use strict";
 /* ============================ helpers ============================ */
@@ -1172,7 +1172,7 @@ function showBatch(out, d) {
 }
 
 /* ---------- calibration tab ---------- */
-const CAL = { zeroKeV: null, gainKeV: null, files: [], rows: [], result: null, unit: "gsm", kind: "roi", emin: 1.64, emax: 1.86, background: "none", group: "", normalize: false, zero: false, weighted: false, sigKey: "" };
+const CAL = { picks: [], refs: null, zeroKeV: null, gainKeV: null, files: [], rows: [], result: null, unit: "gsm", kind: "roi", emin: 1.64, emax: 1.86, background: "none", group: "", normalize: false, zero: false, weighted: false, sigKey: "" };
 function renderCalPane() {
   const p = $("#pane-cal"); p.replaceChildren();
   const fi = h("input", { type: "file", multiple: true, accept: ".vspc,.csv,.mca,.txt,.dat", id: "cal-files", style: "width:auto", "aria-label": "Calibration spectra" });
@@ -1187,10 +1187,11 @@ function renderCalPane() {
   const wt = h("input", { type: "checkbox", id: "cal-wt", onchange: e => { CAL.weighted = e.target.checked; fitCal(); } }); wt.checked = CAL.weighted;
   const sigBox = h("div", { class: "row", id: "cal-sig", style: "gap:8px;align-items:center;flex-wrap:wrap" });
   const read = h("button", { class: "btn", id: "cal-read", onclick: async () => {
-    if (!fi.files.length) { status.textContent = "Choose the standards' spectra first."; return; }
-    status.textContent = "Reading " + fi.files.length + " spectra…"; read.disabled = true;
+    if (!fi.files.length && !CAL.picks.length) { status.textContent = "Add a preloaded spectrum or choose your own files first."; return; }
+    status.textContent = "Reading " + (fi.files.length + CAL.picks.length) + " spectra…"; read.disabled = true;
     try {
-      const files = []; for (const f of [...fi.files].sort((a, b) => a.name.localeCompare(b.name))) files.push({ name: f.name, b64: await toB64(f) });
+      const files = CAL.picks.map(x => ({ name: x.name, builtin: x.id }));
+      for (const f of [...fi.files].sort((a, b) => a.name.localeCompare(b.name))) files.push({ name: f.name, b64: await toB64(f) });
       const d = await api("/api/calsignals", { files, config: S.cfg, signal: calSignalBody() });
       const keep = new Map(CAL.rows.map(r => [r.name, r]));
       CAL.rows = d.rows.map(r => ({ name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
@@ -1200,7 +1201,16 @@ function renderCalPane() {
     } catch (e) { status.textContent = ""; $("#cal-out").replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
     read.disabled = false; } }, "Read spectra");
   CAL._status = status; CAL._setup = setup; CAL._sigBox = sigBox; CAL._read = read;
-  p.append(h("div", { class: "row", style: "flex-wrap:wrap" }, fi, read, status),
+  const pre = h("select", { id: "cal-pre", "aria-label": "Preloaded spectrum", style: "width:auto" }, h("option", { value: "", text: "Preloaded spectra…" }));
+  const picksBox = h("div", { class: "row", style: "flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center" });
+  const drawPicks = () => picksBox.replaceChildren(...CAL.picks.map(x => h("span", { class: "btn", style: "cursor:default;display:inline-flex;gap:6px;align-items:center", title: x.note },
+    x.name, h("button", { class: "btn", style: "padding:0 6px", "aria-label": "Remove " + x.name, onclick: () => { CAL.picks = CAL.picks.filter(y => y.id !== x.id); drawPicks(); } }, "×"))));
+  const fillPre = r => { pre.replaceChildren(h("option", { value: "", text: "Preloaded spectra…" }), ...r.map(x => h("option", { value: x.id, text: x.name + " (" + x.note.split(",")[0] + ")" }))); };
+  if (CAL.refs) fillPre(CAL.refs); else api("/api/calrefs").then(d => { CAL.refs = d.refs; fillPre(d.refs); }).catch(() => {});
+  const addPre = h("button", { class: "btn", onclick: () => { const x = (CAL.refs || []).find(r => r.id === pre.value); if (x && !CAL.picks.some(y => y.id === x.id)) { CAL.picks.push(x); drawPicks(); } } }, "Add");
+  drawPicks();
+  p.append(h("div", { class: "row", style: "flex-wrap:wrap;gap:8px;align-items:center" }, pre, addPre, h("span", { class: "hint", style: "margin:0" }, "or your own files:"), fi),
+    picksBox, h("div", { class: "row", style: "flex-wrap:wrap;margin-top:8px" }, read, status),
     h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:10px;align-items:center" }, h("label", {}, "Signal ", kind), sigBox,
       h("label", { class: "chk" }, norm, " Counts per second"), h("label", {}, "Unit of the amounts ", unit)),
     h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:8px;align-items:center" },

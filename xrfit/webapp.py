@@ -433,7 +433,7 @@ def api_batch(body, query):
     specs = []
     for f in files:
         try:
-            specs.append(load_bytes(f["name"], base64.b64decode(f["b64"])))
+            specs.append(_cal_spectrum(f))
         except Exception as e:
             raise ApiError(f"Could not read {f.get('name', 'file')}: {e}") from e
     try:
@@ -489,6 +489,28 @@ def api_spot(body, query):
     return {"rows": rows, "air_mm": d1, "compare_mm": d2, "spot_mm": spot, "profile": prof}
 
 
+CAL_REFS = [   # bundled bulk references, measured 12 Nov 2026: 5 kV Rh tube, 30 mm air, KETEK AXAS, 10 s
+    ("al600", "Al 600 ns", "Al foil, 600 ns peaking time, 52 % dead time", "ref_al600.vspc"),
+    ("al100", "Al 100 ns", "Al foil, 100 ns peaking time, 19 % dead time", "ref_al100.vspc"),
+    ("si600", "Si 600 ns", "Si wafer, 600 ns peaking time, 68 % dead time", "ref_si600.vspc"),
+    ("si100", "Si 100 ns", "Si wafer, 100 ns peaking time, 25 % dead time", "ref_si100.vspc")]
+
+
+def api_calrefs(body, query):
+    return {"refs": [{"id": i, "name": n, "note": d} for i, n, d, _ in CAL_REFS]}
+
+
+def _cal_spectrum(f):
+    if f.get("builtin"):
+        for i, n, _, fn in CAL_REFS:
+            if i == f["builtin"]:
+                spec = core.load_spectrum(os.path.join(DATA_DIR, fn))
+                spec.name = n
+                return spec
+        raise ValueError("unknown preloaded spectrum")
+    return load_bytes(f["name"], base64.b64decode(f["b64"]))
+
+
 def api_calsignals(body, query):
     """Signal (ROI sum or fitted net area) of each calibration spectrum."""
     files = body.get("files") or []
@@ -497,7 +519,7 @@ def api_calsignals(body, query):
     specs = []
     for f in files:
         try:
-            specs.append(load_bytes(f["name"], base64.b64decode(f["b64"])))
+            specs.append(_cal_spectrum(f))
         except Exception as e:
             raise ApiError(f"Could not read {f.get('name', 'file')}: {e}") from e
     sig = body.get("signal") or {}
@@ -557,7 +579,7 @@ def api_calfit(body, query):
 
 
 POST_ROUTES = {"/api/simulate": api_simulate, "/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
-GET_ROUTES = {"/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
+GET_ROUTES = {"/api/calrefs": api_calrefs, "/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 
 # ----------------------------------------------------------------- dispatch
