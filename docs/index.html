@@ -277,7 +277,7 @@ table.data tr:hover td { background: var(--surface-2); }
         <h2>Sample matrix</h2>
         <div class="grid2">
           <div class="field"><label for="n-layers">Number of layers</label>
-            <select id="n-layers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+            <input type="number" id="n-layers" min="1" max="6" step="1" inputmode="numeric"></div>
           <div class="field"><label for="mx-k">Instrument factor K</label><input type="text" id="mx-k" inputmode="decimal" placeholder="e.g. 5e7"></div>
         </div>
         <div class="row" style="margin-top:6px"><label class="chk"><input type="checkbox" id="mx-fitk"> Fit K from the data</label></div>
@@ -961,7 +961,8 @@ function renderLayers() {
   });
 }
 $("#n-layers").onchange = e => {
-  const n = +e.target.value, ls = mx().layers;
+  let n = Math.round(+e.target.value); if (!(n >= 1)) n = 1; if (n > 6) n = 6;
+  const ls = mx().layers;
   while (ls.length < n) ls.unshift(newLayer());   // new layers go on top, so the substrate keeps its place at the end
   while (ls.length > n) ls.shift();
   renderLayers();
@@ -1173,11 +1174,14 @@ function showBatch(out, d) {
 
 /* ---------- calibration tab ---------- */
 const CAL = { picks: [], refs: null, zeroKeV: null, gainKeV: null, files: [], rows: [], result: null, unit: "gsm", kind: "roi", emin: 1.64, emax: 1.86, background: "none", group: "", normalize: false, zero: false, weighted: false, sigKey: "" };
+function calStep(title, ...kids) {
+  return h("section", { style: "border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:10px;background:var(--surface-1)" },
+    h("h3", { style: "margin:0 0 8px;font-size:14px", text: title }), ...kids);
+}
 function renderCalPane() {
   const p = $("#pane-cal"); p.replaceChildren();
-  const fi = h("input", { type: "file", multiple: true, accept: ".vspc,.csv,.mca,.txt,.dat", id: "cal-files", style: "width:auto", "aria-label": "Calibration spectra" });
+  const fi = h("input", { type: "file", multiple: true, accept: ".vspc,.csv,.mca,.txt,.dat", id: "cal-files", style: "width:auto", "aria-label": "Your own spectra" });
   const status = h("span", { class: "hint", style: "margin:0" });
-  const setup = h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:10px;align-items:center" });
   const unit = h("input", { type: "text", value: CAL.unit, style: "width:70px", "aria-label": "Unit of the known amounts", oninput: e => { CAL.unit = e.target.value; drawCal(); } });
   const kind = h("select", { id: "cal-kind", "aria-label": "Signal", onchange: e => { CAL.kind = e.target.value; invalidateCal(); renderCalSetup(); } },
     h("option", { value: "roi", text: "Counts in an energy window" }), h("option", { value: "area", text: "Net peak area from a fit" }));
@@ -1185,7 +1189,7 @@ function renderCalPane() {
   const norm = h("input", { type: "checkbox", id: "cal-norm", onchange: e => { CAL.normalize = e.target.checked; invalidateCal(); } }); norm.checked = CAL.normalize;
   const zero = h("input", { type: "checkbox", id: "cal-zero", onchange: e => { CAL.zero = e.target.checked; fitCal(); } }); zero.checked = CAL.zero;
   const wt = h("input", { type: "checkbox", id: "cal-wt", onchange: e => { CAL.weighted = e.target.checked; fitCal(); } }); wt.checked = CAL.weighted;
-  const sigBox = h("div", { class: "row", id: "cal-sig", style: "gap:8px;align-items:center;flex-wrap:wrap" });
+  const sigBox = h("div", { class: "row", id: "cal-sig", style: "gap:8px 12px;align-items:center;flex-wrap:wrap" });
   const read = h("button", { class: "btn", id: "cal-read", onclick: async () => {
     if (!fi.files.length && !CAL.picks.length) { status.textContent = "Add a preloaded spectrum or choose your own files first."; return; }
     status.textContent = "Reading " + (fi.files.length + CAL.picks.length) + " spectra…"; read.disabled = true;
@@ -1196,27 +1200,32 @@ function renderCalPane() {
       const keep = new Map(CAL.rows.map(r => [r.name, r]));
       CAL.rows = d.rows.map(r => ({ name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
       CAL.sigKey = JSON.stringify(calSignalBody()); CAL.files = files;
-      status.textContent = `${CAL.rows.length} spectra read (window set with zero ${fmtSig(d.zero, 4)} keV and gain ${fmtSig(d.gain, 5)} keV/channel). Enter the known amounts below.`;
+      status.textContent = `${CAL.rows.length} spectra read.`;
       renderCalTable(); renderCalRef(); fitCal();
     } catch (e) { status.textContent = ""; $("#cal-out").replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
     read.disabled = false; } }, "Read spectra");
-  CAL._status = status; CAL._setup = setup; CAL._sigBox = sigBox; CAL._read = read;
+  CAL._status = status; CAL._sigBox = sigBox; CAL._read = read;
   const pre = h("select", { id: "cal-pre", "aria-label": "Preloaded spectrum", style: "width:auto" }, h("option", { value: "", text: "Preloaded spectra…" }));
-  const picksBox = h("div", { class: "row", style: "flex-wrap:wrap;gap:6px;margin-top:6px;align-items:center" });
+  const picksBox = h("div", { class: "row", style: "flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center" });
   const drawPicks = () => picksBox.replaceChildren(...CAL.picks.map(x => h("span", { class: "btn", style: "cursor:default;display:inline-flex;gap:6px;align-items:center", title: x.note },
     x.name, h("button", { class: "btn", style: "padding:0 6px", "aria-label": "Remove " + x.name, onclick: () => { CAL.picks = CAL.picks.filter(y => y.id !== x.id); drawPicks(); } }, "×"))));
-  const fillPre = r => { pre.replaceChildren(h("option", { value: "", text: "Preloaded spectra…" }), ...r.map(x => h("option", { value: x.id, text: x.name + " (" + x.note.split(",")[0] + ")" }))); };
+  const fillPre = r => { pre.replaceChildren(h("option", { value: "", text: "Preloaded spectra…" }), ...r.map(x => h("option", { value: x.id, text: x.name }))); };
   if (CAL.refs) fillPre(CAL.refs); else api("/api/calrefs").then(d => { CAL.refs = d.refs; fillPre(d.refs); }).catch(() => {});
-  const addPre = h("button", { class: "btn", onclick: () => { const x = (CAL.refs || []).find(r => r.id === pre.value); if (x && !CAL.picks.some(y => y.id === x.id)) { CAL.picks.push(x); drawPicks(); } } }, "Add");
+  pre.onchange = () => { const x = (CAL.refs || []).find(r => r.id === pre.value); if (x && !CAL.picks.some(y => y.id === x.id)) { CAL.picks.push(x); drawPicks(); } pre.value = ""; };
   drawPicks();
-  p.append(h("div", { class: "row", style: "flex-wrap:wrap;gap:8px;align-items:center" }, pre, addPre, h("span", { class: "hint", style: "margin:0" }, "or your own files:"), fi),
-    picksBox, h("div", { class: "row", style: "flex-wrap:wrap;margin-top:8px" }, read, status),
-    h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:10px;align-items:center" }, h("label", {}, "Signal ", kind), sigBox,
-      h("label", { class: "chk" }, norm, " Counts per second"), h("label", {}, "Unit of the amounts ", unit)),
-    h("div", { class: "row", style: "flex-wrap:wrap;gap:10px 14px;margin-top:8px;align-items:center" },
-      h("label", { class: "chk" }, zero, " Force the line through zero"), h("label", { class: "chk" }, wt, " Weight by counting error")),
-    h("p", { class: "hint", text: "Fit signal = a + b × amount to standards of known amount, then read unknowns off the line. Leave an amount empty to treat that spectrum as an unknown. Untick a row to leave it out of the fit. The energy window needs the spectrometer's zero and gain, which start from the Elements settings." }),
-    h("div", { id: "cal-table", style: "margin-top:8px" }), h("div", { id: "cal-out", style: "margin-top:10px" }), h("div", { id: "cal-ref", style: "margin-top:14px" }));
+  p.append(
+    calStep("1. Spectra",
+      h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 12px;align-items:center" }, h("label", {}, "Preloaded ", pre), h("span", { class: "hint", style: "margin:0", text: "or" }), h("label", {}, "Your own ", fi)),
+      picksBox),
+    calStep("2. Signal",
+      h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 12px;align-items:center" }, kind, sigBox, h("label", { class: "chk" }, norm, " Counts per second")),
+      h("div", { class: "row", style: "margin-top:10px;gap:10px;align-items:center;flex-wrap:wrap" }, read, status)),
+    calStep("3. Calibration line",
+      h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center" }, h("label", {}, "Unit of the amounts ", unit),
+        h("label", { class: "chk" }, zero, " Force through zero"), h("label", { class: "chk" }, wt, " Weight by counting error")),
+      h("p", { class: "hint", text: "Type the known amount of each standard. A spectrum with no amount is read off the line as an unknown. Untick Use to leave a standard out." }),
+      h("div", { id: "cal-table" }), h("div", { id: "cal-out", style: "margin-top:10px" })),
+    h("div", { id: "cal-ref" }));
   renderCalSetup(); renderCalTable(); renderCalRef();
 }
 function renderCalSetup() {
@@ -1226,7 +1235,9 @@ function renderCalSetup() {
     const bg = h("select", { "aria-label": "Background", onchange: e => { CAL.background = e.target.value; invalidateCal(); } }, h("option", { value: "none", text: "No background subtraction" }), h("option", { value: "edges", text: "Subtract a line between the window edges" }));
     bg.value = CAL.background;
     const cal = (key, label, def, step) => h("label", {}, label + " ", h("input", { type: "number", step, value: CAL[key] ?? def, style: "width:86px", onchange: e => { CAL[key] = e.target.value === "" ? null : +e.target.value; invalidateCal(); } }));
-    b.append(num("emin", "From (keV)"), num("emax", "to (keV)"), bg, cal("zeroKeV", "Zero (keV)", S.cfg.zero, "0.001"), cal("gainKeV", "Gain (keV/ch)", S.cfg.gain, "0.0001"));
+    b.append(num("emin", "From (keV)"), num("emax", "to (keV)"),
+      h("details", { style: "display:inline-block" }, h("summary", { style: "cursor:pointer;color:var(--text-2)", text: "Window options" }),
+        h("div", { class: "row", style: "gap:8px 12px;flex-wrap:wrap;margin-top:6px" }, bg, cal("zeroKeV", "Zero (keV)", S.cfg.zero, "0.001"), cal("gainKeV", "Gain (keV/ch)", S.cfg.gain, "0.0001"))));
   } else {
     const toks = S.cfg.elements || [], names = [];
     for (const g of S.groupInfo || []) for (const x of g.groups || []) names.push(x.name);
@@ -1314,28 +1325,40 @@ function calChart(rows, f, u) {
 }
 
 /* ---------- thick reference (film mass from the ratio to a bulk standard) ---------- */
-const REF = { idx: -1, line: "Al-K", film: "Al 100", filmRho: "", ref: "Al 100", refRho: "", sub: "C 62.5, H 4.2, O 33.3", subRho: "1.38", scale: false, result: null };
+const REF = { idx: -1, line: "", ref: "Si 100", refRho: "", scale: false, result: null };
+function calFilmSub() {
+  const ls = (S.cfg.matrix && S.cfg.matrix.layers) || [];
+  if (ls.length < 2) return null;
+  const f = ls[0], u = ls[ls.length - 1];
+  return { film: { composition: f.composition, density: f.density }, substrate: { composition: u.composition, density: u.density } };
+}
 function renderCalRef() {
   const box = $("#cal-ref"); if (!box) return; box.replaceChildren();
   const inp = (key, label, w, ph) => h("label", {}, label + " ", h("input", { type: "text", value: REF[key], placeholder: ph || "", style: "width:" + w + "px", oninput: e => { REF[key] = e.target.value; } }));
-  const sel = h("select", { id: "ref-sel", "aria-label": "Thick reference spectrum", onchange: e => { REF.idx = +e.target.value; } }, h("option", { value: -1, text: "Choose the reference spectrum…" }), CAL.rows.map((r, i) => h("option", { value: i, text: r.name })));
+  const sel = h("select", { id: "ref-sel", "aria-label": "Thick reference spectrum", onchange: e => { REF.idx = +e.target.value; } }, h("option", { value: -1, text: "Choose…" }), CAL.rows.map((r, i) => h("option", { value: i, text: r.name })));
   sel.value = REF.idx;
   const sc = h("input", { type: "checkbox", id: "ref-scale", onchange: e => { REF.scale = e.target.checked; } }); sc.checked = REF.scale;
   const out = h("div", { id: "ref-out", style: "margin-top:8px" });
+  const fs = calFilmSub();
+  const info = h("p", { class: "hint", text: fs ? `Film = layer 1 (${fs.film.composition || "empty"}), substrate = last layer (${fs.substrate.composition || "empty"}), both from Sample matrix on the Elements tab.` : "Describe the film as layer 1 and the substrate as the last layer under Sample matrix (at least two layers)." });
   const go = h("button", { class: "btn", id: "ref-go", onclick: async () => {
+    const fsn = calFilmSub();
+    if (!fsn) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Set at least two layers under Sample matrix: the film on top and the substrate last." })); return; }
     if (REF.idx < 0 || !CAL.rows[REF.idx]) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Choose the thick reference spectrum first." })); return; }
+    const line = (REF.line || "").trim() || (CAL.kind === "area" && CAL.group ? CAL.group.split("-")[0] + "-K" : "");
     try {
       const k = r => CAL.normalize || !(r.live_time > 0) ? 1 : 1 / r.live_time;   // counts per second of live time
-      REF.result = await api("/api/calref", { config: S.cfg, ref_index: REF.idx, line: REF.line, scale_to_known: REF.scale,
+      REF.result = await api("/api/calref", { config: S.cfg, ref_index: REF.idx, line, scale_to_known: REF.scale,
         rows: CAL.rows.map(r => ({ name: r.name, signal: r.signal * k(r), err: r.err * k(r), amount: r.amount })),
-        film: { composition: REF.film, density: REF.filmRho }, reference: { composition: REF.ref, density: REF.refRho }, substrate: { composition: REF.sub, density: REF.subRho } });
+        film: fsn.film, reference: { composition: REF.ref, density: REF.refRho }, substrate: fsn.substrate });
       drawCalRef();
     } catch (e) { REF.result = null; out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); } } }, "Convert to film mass");
   box.append(h("details", { open: false },
-    h("summary", { style: "cursor:pointer;color:var(--text-2)", text: "Thick reference: film mass from the ratio to a bulk sample (for example a thin Al film against Al foil)" }),
-    h("p", { class: "hint", text: "The signal of a thin film divided by the signal of an infinitely thick reference gives the film's mass per area. The matrix model (geometry and the incident spectrum from the Beam settings) converts the ratio. Position, air path and detector cancel, so measure the reference with the same settings as the films. Mark the reference in the table above by choosing it here." }),
-    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center" }, h("label", {}, "Reference ", sel), inp("line", "Line", 60), h("label", { class: "chk" }, sc, " Scale to films with a known amount (g/m²)")),
-    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:6px" }, inp("film", "Film", 150, "Al 100"), inp("filmRho", "density g/cm³", 60, "auto"), inp("ref", "Reference", 150, "Al 100"), inp("refRho", "density", 60, "auto"), inp("sub", "Substrate", 190), inp("subRho", "density", 60)),
+    h("summary", { style: "cursor:pointer;color:var(--text-2)", text: "Alternative: film mass from a thick reference (for example Al foil or a Si wafer)" }),
+    h("p", { class: "hint", text: "The signal of a thin film divided by that of an infinitely thick reference gives the film's mass per area, using the matrix model and the Beam settings. Measure the reference with the same settings as the films." }),
+    info,
+    h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 14px;align-items:center" }, h("label", {}, "Reference spectrum ", sel), inp("ref", "Reference material", 130, "Si 100"), inp("refRho", "density g/cm³", 60, "auto"), inp("line", "Line", 60, "auto"),
+      h("label", { class: "chk" }, sc, " Scale to films of known amount (g/m²)")),
     h("div", { style: "margin-top:8px" }, go), out));
 }
 function drawCalRef() {
@@ -1449,7 +1472,7 @@ function drawSim() {
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
   for (const id of ["areas", "matrix", "lines", "batch", "cal", "sim"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
-  if (t.dataset.pane === "cal") renderCalSetup();
+  if (t.dataset.pane === "cal") { renderCalSetup(); renderCalRef(); }
   if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
 }));
 
