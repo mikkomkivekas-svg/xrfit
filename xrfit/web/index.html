@@ -1190,20 +1190,22 @@ function renderCalPane() {
   const wt = h("input", { type: "checkbox", id: "cal-wt", onchange: e => { CAL.weighted = e.target.checked; fitCal(); } }); wt.checked = CAL.weighted;
   const sigBox = h("div", { class: "row", id: "cal-sig", style: "gap:8px 12px;align-items:center;flex-wrap:wrap" });
   const read = h("button", { class: "btn", id: "cal-read", onclick: async () => {
-    if (!fi.files.length && !CAL.picks.length) { status.textContent = "Add a preloaded spectrum or choose your own files first."; return; }
-    status.textContent = "Reading " + (fi.files.length + CAL.picks.length) + " spectra…"; read.disabled = true;
+    if (!S.spec && !fi.files.length && !CAL.picks.length) { status.textContent = "Open a spectrum to analyse, and add reference spectra."; return; }
+    status.textContent = "Reading…"; read.disabled = true;
     try {
-      const files = CAL.picks.map(x => ({ name: x.name, builtin: x.id }));
+      const files = []; if (S.spec) files.push({ name: S.spec.name, current: true });
+      for (const x of CAL.picks) files.push({ name: x.name, builtin: x.id });
       for (const f of [...fi.files].sort((a, b) => a.name.localeCompare(b.name))) files.push({ name: f.name, b64: await toB64(f) });
       const d = await api("/api/calsignals", { files, config: S.cfg, signal: calSignalBody() });
       const keep = new Map(CAL.rows.map(r => [r.name, r]));
-      CAL.rows = d.rows.map(r => ({ name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
+      CAL.rows = d.rows.map((r, i) => ({ current: !!files[i].current, name: r.name, live_time: r.live_time, signal: r.signal, err: r.err, amount: keep.has(r.name) ? keep.get(r.name).amount : "", use: keep.has(r.name) ? keep.get(r.name).use : true }));
       CAL.sigKey = JSON.stringify(calSignalBody()); CAL.files = files;
       status.textContent = `${CAL.rows.length} spectra read.`;
       renderCalTable(); renderCalRef(); fitCal();
     } catch (e) { status.textContent = ""; $("#cal-out").replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
     read.disabled = false; } }, "Read spectra");
   CAL._status = status; CAL._sigBox = sigBox; CAL._read = read;
+  const sampleLine = h("div", { id: "cal-sample", class: "row", style: "gap:8px;align-items:center" });
   const pre = h("select", { id: "cal-pre", "aria-label": "Preloaded spectrum", style: "width:auto" }, h("option", { value: "", text: "Preloaded spectra…" }));
   const picksBox = h("div", { class: "row", style: "flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center" });
   const drawPicks = () => picksBox.replaceChildren(...CAL.picks.map(x => h("span", { class: "btn", style: "cursor:default;display:inline-flex;gap:6px;align-items:center", title: x.note },
@@ -1214,7 +1216,8 @@ function renderCalPane() {
   drawPicks();
   p.append(
     calStep("1. Spectra",
-      h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 12px;align-items:center" }, h("label", {}, "Preloaded ", pre), h("span", { class: "hint", style: "margin:0", text: "or" }), h("label", {}, "Your own ", fi)),
+      sampleLine,
+      h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:8px" }, h("span", { text: "Reference or standard spectra:" }), h("label", {}, "Preloaded ", pre), h("span", { class: "hint", style: "margin:0", text: "or" }), h("label", {}, "Your own ", fi)),
       picksBox),
     calStep("2. Signal",
       h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 12px;align-items:center" }, kind, sigBox, h("label", { class: "chk" }, norm, " Counts per second")),
@@ -1225,7 +1228,12 @@ function renderCalPane() {
       h("p", { class: "hint", text: "Type the known amount of each standard. A spectrum with no amount is read off the line as an unknown. Untick Use to leave a standard out." }),
       h("div", { id: "cal-table" }), h("div", { id: "cal-out", style: "margin-top:10px" })),
     h("div", { id: "cal-ref" }));
-  renderCalSetup(); renderCalTable(); renderCalRef();
+  renderCalSample(); renderCalSetup(); renderCalTable(); renderCalRef();
+}
+function renderCalSample() {
+  const b = $("#cal-sample"); if (!b) return;
+  b.replaceChildren(h("span", { text: "Spectrum to analyse:" }), S.spec ? h("b", { text: S.spec.name }) : h("span", { class: "hint", style: "margin:0", text: "none open. Open a spectrum, add the elements and fit it first." }),
+    S.spec ? h("span", { class: "hint", style: "margin:0", text: "(the one open in the plotter)" }) : "");
 }
 function renderCalSetup() {
   const b = CAL._sigBox; if (!b) return; b.replaceChildren();
@@ -1255,7 +1263,7 @@ function renderCalTable() {
     const o = res.get(r.name), known = r.amount !== "" && r.amount != null;
     tb.append(h("tr", { id: "cal-row-" + i },
       h("td", {}, h("input", { type: "checkbox", checked: r.use, "aria-label": "Use " + r.name + " in the fit", onchange: e => { r.use = e.target.checked; fitCal(); } })),
-      h("td", { text: r.name }),
+      h("td", { text: r.name + (r.current ? " (open spectrum)" : "") }),
       h("td", {}, h("input", { type: "number", step: "any", value: r.amount, style: "width:90px", "aria-label": "Known amount of " + r.name, oninput: e => { r.amount = e.target.value; scheduleFit(); } })),
       h("td", { class: "n", text: fmtInt(r.signal) }), h("td", { class: "n", text: "± " + fmtSig(r.err, 3) }),
       h("td", { class: "n", id: "cal-est-" + i, text: "" }), h("td", { class: "n", id: "cal-res-" + i, text: "" })));
@@ -1334,7 +1342,8 @@ function calFilmSub() {
 function renderCalRef() {
   const box = $("#cal-ref"); if (!box) return; box.replaceChildren();
   const inp = (key, label, w, ph) => h("label", {}, label + " ", h("input", { type: "text", value: REF[key], placeholder: ph || "", style: "width:" + w + "px", oninput: e => { REF[key] = e.target.value; } }));
-  const sel = h("select", { id: "ref-sel", "aria-label": "Thick reference spectrum", onchange: e => { REF.idx = +e.target.value; } }, h("option", { value: -1, text: "Choose…" }), CAL.rows.map((r, i) => h("option", { value: i, text: r.name })));
+  if (REF.idx < 0 || !CAL.rows[REF.idx] || CAL.rows[REF.idx].current) REF.idx = CAL.rows.findIndex(r => !r.current);
+  const sel = h("select", { id: "ref-sel", "aria-label": "Thick reference spectrum", onchange: e => { REF.idx = +e.target.value; } }, h("option", { value: -1, text: "Choose…" }), CAL.rows.map((r, i) => r.current ? null : h("option", { value: i, text: r.name })));
   sel.value = REF.idx;
   const sc = h("input", { type: "checkbox", id: "ref-scale", onchange: e => { REF.scale = e.target.checked; } }); sc.checked = REF.scale;
   const out = h("div", { id: "ref-out", style: "margin-top:8px" });
@@ -1344,7 +1353,7 @@ function renderCalRef() {
     const fsn = calFilmSub();
     if (!fsn) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Set at least two layers under Sample matrix: the film on top and the substrate last." })); return; }
     if (REF.idx < 0 || !CAL.rows[REF.idx]) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Choose the thick reference spectrum first." })); return; }
-    if (CAL.rows.length < 2) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "Only the reference is in the list. Add the film spectra (for example your silicone-on-paper samples) in step 1 and press Read spectra again." })); return; }
+    if (!CAL.rows.some(r => r.current)) { out.replaceChildren(h("div", { class: "err", role: "alert", text: "The open spectrum is not in the list. Open and fit your sample, then press Read spectra." })); return; }
     const line = (REF.line || "").trim() || (CAL.kind === "area" && CAL.group ? CAL.group.split("-")[0] + "-K" : "");
     try {
       const k = r => CAL.normalize || !(r.live_time > 0) ? 1 : 1 / r.live_time;   // counts per second of live time
@@ -1472,13 +1481,14 @@ function drawSim() {
 document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", String(x === t)));
   for (const id of ["areas", "matrix", "lines", "batch", "cal", "sim"]) $("#pane-" + id).hidden = id !== t.dataset.pane;
-  if (t.dataset.pane === "cal") { renderCalSetup(); renderCalRef(); }
+  if (t.dataset.pane === "cal") { renderCalSample(); renderCalSetup(); renderCalRef(); }
   if (t.dataset.pane !== "lines" && S.preview) { S.preview = null; plot.draw(); }
 }));
 
 /* ========================== loading ========================== */
 function applySpectrum(d, isExample) {
   S.spec = { name: d.name, counts: Float64Array.from(d.counts), calib: d.calib, live_time: d.live_time, meta: d.meta };
+  if (typeof CAL !== "undefined") { if (CAL.rows.some(r => r.current)) invalidateCal(); renderCalSample(); }
   S.result = null; S.stale = false; S.view = null; S.cursor = null; S.preview = null; S.showAllMeta = false;
   const sug = d.suggest || {};
   if (isExample) { S.cfg = Object.assign(DEFAULT_CFG(), sug); delete S.cfg.tube; S.slot = {}; S.groupInfo = []; }

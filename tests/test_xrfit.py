@@ -528,3 +528,11 @@ def test_calibration_preloaded_references():
                                  "config": {}, "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
     r = {x["name"]: x["signal"] for x in out["rows"]}
     assert r["Si 600 ns"] > 5 * r["Al 600 ns"] * 0.5 and r["Si 600 ns"] > 1e6
+
+
+def test_calibration_open_spectrum():
+    from xrfit import webapp
+    webapp.api_example({}, {"name": ["srm1157"]})
+    out = webapp.api_calsignals({"files": [{"current": True, "name": "x"}, {"builtin": "si600", "name": "y"}], "config": {},
+                                 "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
+    assert len(out["rows"]) == 2 and out["rows"][1]["name"] == "Si 600 ns"

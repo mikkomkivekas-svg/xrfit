@@ -501,6 +501,12 @@ def api_calrefs(body, query):
 
 
 def _cal_spectrum(f):
+    if f.get("current"):          # the spectrum open in the plotter
+        with STATE.lock:
+            spec = STATE.spec
+        if spec is None:
+            raise ValueError("Open a spectrum first.")
+        return spec
     if f.get("builtin"):
         for i, n, _, fn in CAL_REFS:
             if i == f["builtin"]:
