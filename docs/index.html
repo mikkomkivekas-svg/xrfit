@@ -418,7 +418,7 @@ dialog.plotdlg::backdrop { background: rgba(20, 20, 18, .45); }
 </div>
 <div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
 
-<script src="shim.js?v=f9cb71540d"></script>
+<script src="shim.js?v=57a77321ee"></script>
 <script>
 "use strict";
 /* ============================ helpers ============================ */
@@ -896,7 +896,7 @@ $("#tube-plot").onclick = plotTube;
 $("#tube-fill").onclick = async () => {
   const err = $("#beam-err"); err.hidden = true;
   try {
-    const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: +$("#tube-share").value / 100, emin: 1.5 });
+    const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: +$("#tube-share").value / 100, emin: 0.5 });
     setBeamRows(d.beam, `Incident spectrum set to ${d.beam.length} energies from the tube settings.`);
   } catch (e) { err.textContent = e.message; err.hidden = false; }
 };
@@ -1023,7 +1023,7 @@ async function useLineShare(frac) {
   try {
     const pct = +(frac * 100).toPrecision(3);
     $("#tube-share").value = pct;
-    const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: pct / 100, emin: 1.5 });
+    const d = await api("/api/tube", { anode: normToken($("#tube-anode").value), kv: +$("#tube-kv").value, bins: +$("#tube-bins").value, line_share: pct / 100, emin: 0.5 });
     mx().fit_line_share = false; syncMatrix();
     setBeamRows(d.beam, `Incident spectrum regenerated with ${pct} % anode lines. Fit the spectrum again.`);
   } catch (e) { setStatus(e.message, true); }
@@ -1260,7 +1260,7 @@ async function plotTube() {
   const err = $("#beam-err"); err.hidden = true;
   try {
     const anode = normToken($("#tube-anode").value), kv = +$("#tube-kv").value, share = +$("#tube-share").value;
-    const d = await api("/api/tube", { anode, kv, bins: +$("#tube-bins").value, line_share: share / 100, emin: 1.5 });
+    const d = await api("/api/tube", { anode, kv, bins: +$("#tube-bins").value, line_share: share / 100, emin: 0.5 });
     const cont = d.beam.filter(r => !r.scatter), lines = d.beam.filter(r => r.scatter);
     const w = cont.length > 1 ? (cont[cont.length - 1].energy - cont[0].energy) / (cont.length - 1) : 1;
     const lsum = lines.reduce((a, r) => a + r.weight, 0);
@@ -1269,7 +1269,7 @@ async function plotTube() {
       series: [{ name: "Continuum (share of photons per step)", kind: "steps", x: cont.map(r => r.energy), y: cont.map(r => r.weight), w, color: "var(--s1)" },
         ...(lines.length ? [{ name: "Anode lines (share of photons)", kind: "spikes", x: lines.map(r => r.energy), y: lines.map(r => r.weight), labels: lines.map(r => fmtSig(r.energy, 4)), color: "var(--s2)" }] : [])],
       full: [0, kv * 1.02], view: [0, kv * 1.02], ylabel: "Share of photons per row", log: false,
-      note: "This is the list that Generate list would put in the incident spectrum, before any beam filters. It is a simplified Kramers model without tube window or filter absorption.",
+      note: "This is the list that Generate list would put in the incident spectrum, before any beam filters. It is a simplified Kramers model from 0.5 keV up, without tube window or filter absorption.",
       csv: { name: "xrfit-tube-spectrum.csv", text: "energy_keV,weight,anode_line\n" + d.beam.map(r => `${r.energy},${r.weight},${r.scatter ? 1 : 0}`).join("\n") + "\n" } });
   } catch (e) { err.textContent = e.message; err.hidden = false; }
 }

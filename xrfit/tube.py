@@ -34,7 +34,7 @@ def _lines(anode, kv, names, shell_weight=False):
     return out
 
 
-def tube_beam(anode="Rh", kv=40.0, bins=24, emin=1.5, line_share=0.25, l_share=None):
+def tube_beam(anode="Rh", kv=40.0, bins=24, emin=0.5, line_share=0.25, l_share=None):
     """-> [{"energy", "weight", "use", "scatter"}] with weights summing to 1.
 
     `line_share` is the share of all photons in the anode's characteristic lines: K lines when the voltage is above
