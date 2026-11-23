@@ -489,6 +489,7 @@ def api_spot(body, query):
     return {"rows": rows, "air_mm": d1, "compare_mm": d2, "spot_mm": spot, "profile": prof}
 
 
+CAL_CACHE = {}   # last calibration read: spectra and fits
 CAL_REFS = [   # bundled bulk references, measured 12 Nov 2026: 5 kV Rh tube, 30 mm air, KETEK AXAS, 10 s
     ("al600", "Al 600 ns", "Al foil, 600 ns peaking time, 52 % dead time", "ref_al600.vspc"),
     ("al100", "Al 100 ns", "Al foil, 100 ns peaking time, 19 % dead time", "ref_al100.vspc"),
@@ -530,6 +531,7 @@ def api_calsignals(body, query):
             raise ApiError(f"Could not read {f.get('name', 'file')}: {e}") from e
     sig = body.get("signal") or {}
     norm = "live_time" if sig.get("normalize") == "live_time" else "none"
+    fits = []
     try:
         if sig.get("kind") == "area":
             cfg = cfg_from_json(body.get("config"))
@@ -537,7 +539,7 @@ def api_calsignals(body, query):
                 raise ApiError("Add the element to fit under Elements first.")
             if not sig.get("group"):
                 raise ApiError("Choose the line group to use as the signal.")
-            vals = calibration.area_signals(specs, cfg, sig["group"], norm)
+            vals = calibration.area_signals(specs, cfg, sig["group"], norm, fits)
         else:
             cfg = cfg_from_json(body.get("config"))
             zero = cfg.zero if sig.get("zero") in (None, "") else float(sig["zero"])
@@ -546,8 +548,34 @@ def api_calsignals(body, query):
                                            "edges" if sig.get("background") == "edges" else "none", normalize=norm)
     except (KeyError, ValueError, TypeError) as e:
         raise ApiError(msg(e)) from e
+    area = sig.get("kind") == "area"
+    with STATE.lock:   # kept for the plot of each spectrum (api_calplot)
+        CAL_CACHE.clear()
+        CAL_CACHE.update({"specs": specs, "fits": fits, "kind": "area" if area else "roi", "group": sig.get("group"),
+                          "zero": cfg.zero if area else zero, "gain": cfg.gain if area else gain,
+                          "emin": sig.get("emin"), "emax": sig.get("emax")})
     return {"rows": [{"name": s.name, "live_time": s.live_time, "signal": v[0], "err": v[1]} for s, v in zip(specs, vals)],
             "zero": zero if sig.get("kind") != "area" else cfg.zero, "gain": gain if sig.get("kind") != "area" else cfg.gain}
+
+
+def api_calplot(body, query):
+    """Data of one spectrum read by api_calsignals, with its fit or its energy window, for the plot dialog."""
+    with STATE.lock:
+        c = dict(CAL_CACHE)
+    i = body.get("index")
+    if not c or not isinstance(i, int) or not 0 <= i < len(c["specs"]):
+        raise ApiError("Press Read spectra first.")
+    s = c["specs"][i]
+    out = {"name": s.name, "live_time": s.live_time, "kind": c["kind"]}
+    if c["kind"] == "area":
+        r = c["fits"][i]
+        a, e = r.areas[c["group"]]
+        out.update(energy=r.energy, data=r.data, background=r.background, fit=r.fit, group=c["group"],
+                   comp=r.components.get(c["group"]), area=a, err=e, chi2red=r.chi2red)
+    else:
+        y = np.asarray(s.counts, float)
+        out.update(energy=c["zero"] + c["gain"] * np.arange(len(y)), data=y, window=[float(c["emin"]), float(c["emax"])])
+    return clean(out)
 
 
 def api_calref(body, query):
@@ -584,7 +612,7 @@ def api_calfit(body, query):
         raise ApiError(msg(e)) from e
 
 
-POST_ROUTES = {"/api/simulate": api_simulate, "/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
+POST_ROUTES = {"/api/calplot": api_calplot, "/api/simulate": api_simulate, "/api/calref": api_calref, "/api/spot": api_spot, "/api/calsignals": api_calsignals, "/api/calfit": api_calfit, "/api/filters": api_filters, "/api/matrix": api_matrix, "/api/composition": api_composition, "/api/tube": api_tube, "/api/groups": api_groups, "/api/lines": api_lines, "/api/fit": api_fit, "/api/batch": api_batch}
 GET_ROUTES = {"/api/calrefs": api_calrefs, "/api/session": api_session, "/api/elements": api_elements, "/api/example": api_example}
 
 

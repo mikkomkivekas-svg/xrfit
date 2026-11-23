@@ -40,9 +40,11 @@ def roi_signals(spectra, zero, gain, emin, emax, background="none", edge_kev=0.0
     return out
 
 
-def area_signals(spectra, cfg, group, normalize="none"):
-    """Net peak area of one line group from a full fit of each spectrum."""
+def area_signals(spectra, cfg, group, normalize="none", results_out=None):
+    """Net peak area of one line group from a full fit of each spectrum (the fits go to results_out, if given)."""
     results = core.fit_batch(spectra, cfg)
+    if results_out is not None:
+        results_out[:] = results
     out = []
     for s, r in zip(spectra, results):
         if group not in r.areas:

@@ -203,3 +203,6 @@ Calculates the spectrum the detector sees for a tube (anode, kV), a layered samp
 
 ### Preloaded reference spectra (Calibration tab)
 The Calibration tab has a drop-down of bundled bulk references (Al 600 ns, Al 100 ns, Si 600 ns, Si 100 ns: Al foil and Si wafer, 5 kV Rh tube, 30 mm air, KETEK AXAS). Pick one from the list, and add your own files with the file chooser; both kinds are read together with "Read spectra".
+
+### Plot dialogs
+Two temporary plot windows open over the page without changing the main plot (close with the Close button, Esc, or a click outside): **Plot spectrum** in the X-ray tube generator shows the continuum steps and anode lines, and the **Plot** button on each Calibration row shows that spectrum with its fit (or its energy window). Drag to zoom, double-click to reset, and download the data as CSV.

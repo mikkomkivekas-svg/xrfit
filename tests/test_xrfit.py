@@ -536,3 +536,12 @@ def test_calibration_open_spectrum():
     out = webapp.api_calsignals({"files": [{"current": True, "name": "x"}, {"builtin": "si600", "name": "y"}], "config": {},
                                  "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
     assert len(out["rows"]) == 2 and out["rows"][1]["name"] == "Si 600 ns"
+
+
+def test_calibration_plot_data():
+    from xrfit import webapp
+    webapp.api_example({}, {"name": ["srm1157"]})
+    webapp.api_calsignals({"files": [{"current": True, "name": "x"}, {"builtin": "si600", "name": "y"}], "config": {},
+                           "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
+    d = webapp.api_calplot({"index": 1}, {})
+    assert d["kind"] == "roi" and len(d["energy"]) == len(d["data"]) and d["window"] == [1.6, 1.9]

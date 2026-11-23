@@ -220,6 +220,9 @@ table.data tr:hover td { background: var(--surface-2); }
   .fitbar { position: sticky; bottom: 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+dialog.plotdlg { border: 1px solid var(--line); border-radius: 10px; padding: 0; background: var(--surface-1); color: var(--text-1); width: min(900px, 96vw); max-height: 94vh; box-shadow: var(--shadow); }
+dialog.plotdlg::backdrop { background: rgba(20, 20, 18, .45); }
+.plotdlg-in { padding: 12px 16px 14px; }
 </style>
 </head>
 <body>
@@ -259,7 +262,7 @@ table.data tr:hover td { background: var(--surface-2); }
             <div class="field"><label for="tube-bins">Continuum steps</label><input type="number" id="tube-bins" value="24" min="3" max="200" step="1"></div>
             <div class="field"><label for="tube-share" title="K lines above the anode K edge, L lines below it (a 5 kV Rh tube has only L lines)">Anode lines (% of photons)</label><input type="number" id="tube-share" value="25" min="0" max="95" step="1"></div>
           </div>
-          <div class="row" style="margin-top:8px"><button class="btn" id="tube-fill">Generate list</button></div>
+          <div class="row" style="margin-top:8px;gap:8px"><button class="btn" id="tube-fill">Generate list</button><button class="btn" id="tube-plot" title="Shows the continuum and anode lines in a window; the incident spectrum is not changed">Plot spectrum</button></div>
           <p class="hint">Simplified model: Kramers continuum plus the anode K lines (none if the voltage is below the anode's K edge, as for W under 69.5 kV), with no window or filter absorption. For an exact spectrum, compute it elsewhere and load it from a file.</p>
         </div>
         <div style="margin-top:12px"><b style="font-size:12px">Beam filters</b> <span class="hint">between the source and the sample</span></div>
@@ -888,6 +891,7 @@ $("#beam-file").onchange = async e => {
   setBeamRows(r.rows, `Loaded ${r.rows.length} energies from ${f.name}.`);
 };
 $("#beam-tube-toggle").onclick = e => { const t = $("#tube"); t.hidden = !t.hidden; e.currentTarget.setAttribute("aria-expanded", String(!t.hidden)); };
+$("#tube-plot").onclick = plotTube;
 $("#tube-fill").onclick = async () => {
   const err = $("#beam-err"); err.hidden = true;
   try {
@@ -1173,6 +1177,121 @@ function showBatch(out, d) {
 
 /* ---------- calibration tab ---------- */
 const CAL = { picks: [], refs: null, zeroKeV: null, gainKeV: null, files: [], rows: [], result: null, unit: "gsm", kind: "roi", emin: 1.64, emax: 1.86, background: "none", group: "", normalize: false, zero: false, weighted: false, sigKey: "" };
+// ---- temporary plot dialog: opens over the page, never touches the main plot
+function plotModal(o) {
+  const NS = "http://www.w3.org/2000/svg", el = (t, a = {}, ...k) => { const e = document.createElementNS(NS, t); for (const [x, v] of Object.entries(a)) e.setAttribute(x, v); k.forEach(c => e.append(c)); return e; };
+  const tx = s => document.createTextNode(s);
+  const W = 820, H = 400, m = { l: 66, r: 16, t: 14, b: 42 };
+  const full = o.full || [Math.min(...o.series.flatMap(s => s.x)), Math.max(...o.series.flatMap(s => s.x))];
+  let view = o.view ? [...o.view] : [...full], log = !!o.log;
+  const dlg = h("dialog", { class: "plotdlg", "aria-label": o.title });
+  const host = h("div"), readout = h("div", { class: "hint", style: "margin:4px 0 0;min-height:1.3em", "aria-live": "off" });
+  const logBox = h("input", { type: "checkbox", onchange: e => { log = e.target.checked; draw(); } }); logBox.checked = log;
+  const btns = [h("button", { class: "btn", onclick: () => { view = o.view ? [...o.view] : [...full]; draw(); } }, "Reset zoom"),
+    o.view && (o.view[0] !== full[0] || o.view[1] !== full[1]) ? h("button", { class: "btn", onclick: () => { view = [...full]; draw(); } }, "Whole spectrum") : null];
+  const csv = o.csv ? h("a", { class: "btn", href: URL.createObjectURL(new Blob([o.csv.text], { type: "text/csv" })), download: o.csv.name, text: "Download data (CSV)" }) : null;
+  const close = () => dlg.close();
+  dlg.addEventListener("close", () => { if (csv) URL.revokeObjectURL(csv.href); dlg.remove(); });
+  dlg.addEventListener("click", e => { if (e.target === dlg) close(); });   // click on the dimmed page outside the box
+  dlg.append(h("div", { class: "plotdlg-in" },
+    h("div", { class: "row", style: "justify-content:space-between;align-items:flex-start;gap:12px" },
+      h("div", {}, h("h2", { style: "margin:0;font-size:15px", text: o.title }), o.sub ? h("div", { class: "hint", style: "margin:2px 0 0", text: o.sub }) : null),
+      h("button", { class: "btn", "aria-label": "Close", onclick: close }, "Close")),
+    h("div", { class: "row", style: "gap:14px;margin:8px 0 4px;align-items:center;flex-wrap:wrap" }, h("label", { class: "chk" }, logBox, " Logarithmic scale"), ...btns, h("span", { class: "hint", style: "margin:0", text: "Drag on the plot to zoom, double-click to reset." })),
+    host, readout, o.note ? h("p", { class: "hint", text: o.note }) : null, csv ? h("div", { class: "row" }, csv) : null));
+  const cols = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)"];
+  function nice(a, b, n) { const st = (b - a) / n, mag = Math.pow(10, Math.floor(Math.log10(st))), q = [1, 2, 5, 10].map(v => v * mag).find(v => v >= st); const t = []; for (let v = Math.ceil(a / q) * q; v <= b + q * 1e-9; v += q) t.push(+v.toPrecision(10)); return t; }
+  function draw() {
+    const [x0, x1] = view, vis = (s, i) => { const x = s.x[i]; return x >= x0 - (s.w || 0) / 2 && x <= x1 + (s.w || 0) / 2; };
+    let ymax = 0, ymin = Infinity;
+    for (const s of o.series) for (let i = 0; i < s.x.length; i++) if (vis(s, i) && s.y[i] != null) { ymax = Math.max(ymax, s.y[i]); if (s.y[i] > 0 && s === o.series[0]) ymin = Math.min(ymin, s.y[i]); }
+    if (!(ymax > 0)) ymax = 1;
+    ymax *= 1.06; if (!isFinite(ymin)) ymin = ymax * 1e-3;
+    const lo = log ? Math.max(ymin * 0.6, ymax * 1e-6) : 0, hi = log && lo >= ymax ? lo * 10 : ymax;
+    const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
+    const Y = v => log ? H - m.b - (Math.log10(Math.max(v, lo)) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo)) * (H - m.t - m.b) : H - m.b - (v - lo) / (hi - lo) * (H - m.t - m.b);
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", style: "display:block;touch-action:none", role: "img", "aria-label": o.title });
+    const clip = "clip" + Math.random().toString(36).slice(2, 8);
+    svg.append(el("defs", {}, el("clipPath", { id: clip }, el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b }))));
+    const yt = []; if (log) { for (let v = Math.pow(10, Math.ceil(Math.log10(lo))); v <= hi; v *= 10) yt.push(v); } else yt.push(...nice(lo, hi, 5));
+    for (const v of yt) { svg.append(el("line", { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: "var(--grid)" })); svg.append(el("text", { x: m.l - 6, y: Y(v) + 4, "text-anchor": "end", fill: "var(--text-3)", "font-size": 11 }, tx(fmtSig(v, 3)))); }
+    for (const v of nice(x0, x1, 8)) { svg.append(el("line", { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, stroke: "var(--grid)" })); svg.append(el("text", { x: X(v), y: H - m.b + 16, "text-anchor": "middle", fill: "var(--text-3)", "font-size": 11 }, tx(String(v)))); }
+    svg.append(el("text", { x: (m.l + W - m.r) / 2, y: H - 6, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12 }, tx(o.xlabel || "Energy (keV)")));
+    svg.append(el("text", { x: 14, y: (m.t + H - m.b) / 2, "text-anchor": "middle", fill: "var(--text-2)", "font-size": 12, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})` }, tx(o.ylabel || "Counts")));
+    const g = el("g", { "clip-path": `url(#${clip})` });
+    if (o.band) g.append(el("rect", { x: X(o.band.x0), y: m.t, width: Math.max(1, X(o.band.x1) - X(o.band.x0)), height: H - m.t - m.b, fill: "var(--s3)", opacity: 0.16 }));
+    o.series.forEach((s, k) => {
+      const c = s.color || cols[k % cols.length], base = Y(lo);
+      if (s.kind === "steps") s.x.forEach((x, i) => { if (!vis(s, i)) return; const xa = X(x - s.w / 2), xb = X(x + s.w / 2), yy = Y(s.y[i]); g.append(el("rect", { x: xa, y: yy, width: Math.max(1, xb - xa - 0.5), height: Math.max(0, base - yy), fill: c, opacity: 0.55 })); });
+      else if (s.kind === "spikes") s.x.forEach((x, i) => { if (!vis(s, i)) return; g.append(el("line", { x1: X(x), x2: X(x), y1: base, y2: Y(s.y[i]), stroke: c, "stroke-width": 2.5 }));
+        if (s.labels) g.append(el("text", { x: X(x) + 3, y: Y(s.y[i]) + 12, fill: "var(--text-2)", "font-size": 10.5 }, tx(s.labels[i]))); });
+      else {
+        let d = "", f = "";
+        s.x.forEach((x, i) => { if (s.y[i] == null || x < x0 - 1 || x > x1 + 1) return; const px = X(x).toFixed(1), py = Y(s.y[i]).toFixed(1); d += (d ? "L" : "M") + px + " " + py; if (s.fill) f += (f ? "L" : "M" + px + " " + base.toFixed(1) + "L") + px + " " + py; });
+        if (s.fill && f) { const last = s.x.filter(x => x >= x0 - 1 && x <= x1 + 1).pop(); g.append(el("path", { d: f + "L" + X(last).toFixed(1) + " " + base.toFixed(1) + "Z", fill: c, opacity: 0.22 })); }
+        g.append(el("path", { d, fill: "none", stroke: c, "stroke-width": s.width || 1.5, "stroke-linejoin": "round", "stroke-dasharray": s.dash || "" }));
+      }
+    });
+    svg.append(g);
+    const cross = el("line", { y1: m.t, y2: H - m.b, stroke: "var(--text-3)", "stroke-dasharray": "3 3", visibility: "hidden" }), sel = el("rect", { y: m.t, height: H - m.t - m.b, fill: "var(--focus)", opacity: 0.15, visibility: "hidden" });
+    const ov = el("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", style: "cursor:crosshair" });
+    svg.append(cross, sel, ov);
+    const xAt = ev => { const r = svg.getBoundingClientRect(), px = (ev.clientX - r.left) / r.width * W; return Math.min(x1, Math.max(x0, x0 + (px - m.l) / (W - m.l - m.r) * (x1 - x0))); };
+    let drag = null;
+    ov.addEventListener("pointerdown", ev => { ov.setPointerCapture(ev.pointerId); drag = xAt(ev); });
+    ov.addEventListener("pointermove", ev => {
+      const x = xAt(ev); cross.setAttribute("x1", X(x)); cross.setAttribute("x2", X(x)); cross.setAttribute("visibility", "visible");
+      if (drag != null) { const a = Math.min(drag, x), b = Math.max(drag, x); sel.setAttribute("x", X(a)); sel.setAttribute("width", X(b) - X(a)); sel.setAttribute("visibility", "visible"); }
+      const parts = [`${fmtSig(x, 4)} keV`];
+      o.series.forEach(s => { let bi = 0, bd = Infinity; s.x.forEach((v, i) => { const d = Math.abs(v - x); if (d < bd) { bd = d; bi = i; } }); if (s.kind === "line" || bd < (s.w || 0.3)) parts.push(`${s.name}: ${s.y[bi] == null ? "–" : fmtSig(s.y[bi], 4)}`); });
+      readout.textContent = parts.join("   ");
+    });
+    ov.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); readout.textContent = ""; });
+    ov.addEventListener("pointerup", ev => { if (drag == null) return; const a = Math.min(drag, xAt(ev)), b = Math.max(drag, xAt(ev)); drag = null; sel.setAttribute("visibility", "hidden"); if (X(b) - X(a) > 6) { view = [a, b]; draw(); } });
+    ov.addEventListener("dblclick", () => { view = o.view ? [...o.view] : [...full]; draw(); });
+    const key = h("div", { class: "hint", style: "display:flex;gap:6px 18px;flex-wrap:wrap;margin:4px 0 0 " + m.l + "px" }, ...o.series.map((s, k) => h("span", {}, h("span", { style: "color:" + (s.color || cols[k % cols.length]) }, "━ "), s.name)));
+    host.replaceChildren(svg, key);
+  }
+  document.body.append(dlg); dlg.showModal(); draw();
+  return dlg;
+}
+async function plotTube() {
+  const err = $("#beam-err"); err.hidden = true;
+  try {
+    const anode = normToken($("#tube-anode").value), kv = +$("#tube-kv").value, share = +$("#tube-share").value;
+    const d = await api("/api/tube", { anode, kv, bins: +$("#tube-bins").value, line_share: share / 100, emin: 1.5 });
+    const cont = d.beam.filter(r => !r.scatter), lines = d.beam.filter(r => r.scatter);
+    const w = cont.length > 1 ? (cont[cont.length - 1].energy - cont[0].energy) / (cont.length - 1) : 1;
+    const lsum = lines.reduce((a, r) => a + r.weight, 0);
+    plotModal({ title: `${anode} tube at ${kv} kV: incident spectrum`,
+      sub: `Continuum in ${cont.length} equal steps of ${fmtSig(w, 3)} keV${lines.length ? `, ${lines.length} anode lines carrying ${fmtSig(100 * lsum, 3)} % of the photons` : ", no anode lines at this voltage"}.`,
+      series: [{ name: "Continuum (share of photons per step)", kind: "steps", x: cont.map(r => r.energy), y: cont.map(r => r.weight), w, color: "var(--s1)" },
+        ...(lines.length ? [{ name: "Anode lines (share of photons)", kind: "spikes", x: lines.map(r => r.energy), y: lines.map(r => r.weight), labels: lines.map(r => fmtSig(r.energy, 4)), color: "var(--s2)" }] : [])],
+      full: [0, kv * 1.02], view: [0, kv * 1.02], ylabel: "Share of photons per row", log: false,
+      note: "This is the list that Generate list would put in the incident spectrum, before any beam filters. It is a simplified Kramers model without tube window or filter absorption.",
+      csv: { name: "xrfit-tube-spectrum.csv", text: "energy_keV,weight,anode_line\n" + d.beam.map(r => `${r.energy},${r.weight},${r.scatter ? 1 : 0}`).join("\n") + "\n" } });
+  } catch (e) { err.textContent = e.message; err.hidden = false; }
+}
+async function plotCalRow(i) {
+  const out = $("#cal-out");
+  try {
+    const d = await api("/api/calplot", { index: i }), k = CAL.normalize && d.live_time > 0 ? 1 / d.live_time : 1, sc = a => a == null ? null : a.map(v => v == null ? null : v * k);
+    const unit = CAL.normalize ? "Counts per second per channel" : "Counts per channel";
+    const csvOf = rows => "energy_keV," + rows.map(r => r[0]).join(",") + "\n" + d.energy.map((e, j) => e + "," + rows.map(r => r[1][j] ?? "").join(",")).join("\n") + "\n";
+    if (d.kind === "area") {
+      const ser = [{ name: "Measured", kind: "line", x: d.energy, y: sc(d.data), color: "var(--text-3)", width: 1 }, { name: "Fit", kind: "line", x: d.energy, y: sc(d.fit), color: "var(--s2)", width: 1.6 },
+        { name: "Background", kind: "line", x: d.energy, y: sc(d.background), color: "var(--s4)", width: 1.2, dash: "5 3" }];
+      if (d.comp) ser.push({ name: d.group, kind: "line", x: d.energy, y: sc(d.comp), color: "var(--s1)", width: 1.6, fill: true });
+      plotModal({ title: d.name, sub: `${d.group} net area ${fmtInt(d.area * k)} ± ${fmtInt(d.err * k)}${CAL.normalize ? " cps" : " counts"}, reduced χ² ${fmtSig(d.chi2red, 3)}`, series: ser, log: true, ylabel: unit,
+        csv: { name: "xrfit-" + d.name.replace(/[^\w.-]+/g, "_") + "-fit.csv", text: csvOf([["data", sc(d.data)], ["fit", sc(d.fit)], ["background", sc(d.background)]]) } });
+    } else {
+      const [a, b] = d.window, pad = Math.max(0.6, 2 * (b - a));
+      plotModal({ title: d.name, sub: `Counts in the window ${fmtSig(a, 4)} to ${fmtSig(b, 4)} keV (shaded)`, series: [{ name: "Measured", kind: "line", x: d.energy, y: sc(d.data), color: "var(--s1)", width: 1.2 }],
+        band: { x0: a, x1: b }, log: true, ylabel: unit, view: [Math.max(0, a - pad), b + pad], full: [d.energy[0], d.energy[d.energy.length - 1]],
+        csv: { name: "xrfit-" + d.name.replace(/[^\w.-]+/g, "_") + ".csv", text: csvOf([["counts", sc(d.data)]]) } });
+    }
+  } catch (e) { out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
+}
 function calStep(title, ...kids) {
   return h("section", { style: "border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin-bottom:10px;background:var(--surface-1)" },
     h("h3", { style: "margin:0 0 8px;font-size:14px", text: title }), ...kids);
@@ -1266,9 +1385,10 @@ function renderCalTable() {
       h("td", { text: r.name + (r.current ? " (open spectrum)" : "") }),
       h("td", {}, h("input", { type: "number", step: "any", value: r.amount, style: "width:90px", "aria-label": "Known amount of " + r.name, oninput: e => { r.amount = e.target.value; scheduleFit(); } })),
       h("td", { class: "n", text: fmtInt(r.signal) }), h("td", { class: "n", text: "± " + fmtSig(r.err, 3) }),
-      h("td", { class: "n", id: "cal-est-" + i, text: "" }), h("td", { class: "n", id: "cal-res-" + i, text: "" })));
+      h("td", { class: "n", id: "cal-est-" + i, text: "" }), h("td", { class: "n", id: "cal-res-" + i, text: "" }),
+      h("td", {}, h("button", { class: "btn", "aria-label": "Plot " + r.name, onclick: () => plotCalRow(i) }, "Plot"))));
   });
-  t.replaceChildren(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Use" }), h("th", { text: "Spectrum" }), h("th", { text: "Known (" + CAL.unit + ")" }), h("th", { class: "n", text: "Signal" }), h("th", { class: "n", text: "Error" }), h("th", { class: "n", text: "Read from line (" + CAL.unit + ")" }), h("th", { class: "n", text: "Residual" }))), tb));
+  t.replaceChildren(h("table", { class: "data" }, h("thead", {}, h("tr", {}, h("th", { text: "Use" }), h("th", { text: "Spectrum" }), h("th", { text: "Known (" + CAL.unit + ")" }), h("th", { class: "n", text: "Signal" }), h("th", { class: "n", text: "Error" }), h("th", { class: "n", text: "Read from line (" + CAL.unit + ")" }), h("th", { class: "n", text: "Residual" }), h("th", { text: "" }))), tb));
   fillCalResults();
 }
 function fillCalResults() {
