@@ -209,3 +209,6 @@ Two temporary plot windows open over the page without changing the main plot (cl
 
 ### Kaolinite example
 The **Kaolinite, Al and Si** example loads a kaolinite-on-paper spectrum with Al K and Si K fitted in a local window (1.1 to 2.2 keV) with a sixth-order background. A cubic background over the whole 0.8 to 3.5 keV range stays too high in the valley between the two peaks.
+
+### Hardware in the path
+The two examples and the Simulator include the 50 µm Be tube window, 17 mm of air between the tube and the sample, and the detector's CH window. The CH window is a 0.5 µm polypropylene placeholder, so edit its thickness when you know it. `Air` is available as a filter material.

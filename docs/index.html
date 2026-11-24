@@ -419,7 +419,7 @@ dialog.plotdlg::backdrop { background: rgba(20, 20, 18, .45); }
 </div>
 <div class="drop" id="drop" hidden>Drop a spectrum file to open it</div>
 
-<script src="shim.js?v=318452ec88"></script>
+<script src="shim.js?v=6d33a526ea"></script>
 <script>
 "use strict";
 /* ============================ helpers ============================ */
@@ -1509,7 +1509,7 @@ function drawCalRef() {
 
 
 /* ---------- simulator tab ---------- */
-const SIM = { anode: "Rh", kv: 5, lineShare: 0.1, sample: [{ composition: "Si 46.7, O balance", density: "1.2", thickness_um: "1" }, { composition: "C 62.5, H 4.2, O balance", density: "1.38", thickness_um: "" }],
+const SIM = { tbe: 50, tair: 17, dch: 0.5, anode: "Rh", kv: 5, lineShare: 0.1, sample: [{ composition: "Si 46.7, O balance", density: "1.2", thickness_um: "1" }, { composition: "C 62.5, H 4.2, O balance", density: "1.38", thickness_um: "" }],
   tube: 0, det: 47, scat: 133, air: 30, spot: 40, si: 0.5, be: 0, kcps: 50, emax: 4, log: false, ar: 1, result: null, hide: {},
   rows: [{ name: "No filters", bm: "", bt: "", dm: "", dt: "" }, { name: "Kapton 12.5 µm on tube", bm: "Kapton", bt: "12.5", dm: "", dt: "" },
          { name: "Polypropylene 4 µm at detector", bm: "", bt: "", dm: "Polypropylene", dt: "4" }, { name: "CNT 15 nm at detector", bm: "", bt: "", dm: "CNT", dt: "0.015" }] };
@@ -1540,24 +1540,27 @@ function renderSimPane() {
   const go = h("button", { class: "btn primary", onclick: async () => {
     go.disabled = true; out.replaceChildren(h("div", { class: "hint", text: "Calculating…" }));
     const fl = (m, t) => m && String(m).trim() ? [{ material: String(m).trim(), thickness_um: t }] : [];
+    // always in the path: tube Be window and the air between tube and sample; the detector's polymer window
+    const fixedB = [...(+SIM.tbe > 0 ? [{ material: "Be", thickness_um: +SIM.tbe }] : []), ...(+SIM.tair > 0 ? [{ material: "Air", thickness_um: +SIM.tair * 1000 }] : [])];
+    const fixedD = +SIM.dch > 0 ? [{ material: "Polypropylene", thickness_um: +SIM.dch }] : [];
     try {
       const body = { tube: { anode: SIM.anode, kv: +SIM.kv, line_share: +SIM.lineShare },
         matrix: { alpha_in: 90 - +SIM.tube, alpha_out: 90 - +SIM.det, layers: SIM.sample.map(L => ({ composition: L.composition, density: L.density, thickness_um: L.thickness_um })),
           detector: { si_mm: +SIM.si, be_um: +SIM.be, air_mm: +SIM.air, spot_mm: +SIM.spot, spot_profile: "uniform" } },
         scatter_angle: +SIM.scat, emax: +SIM.emax, input_kcps: +SIM.kcps, ar_scale: +SIM.ar,
         detector: { gain: 0.00487, zero: 0, noise: 0.047, fano: 0.122, esc_scale: 1.1 },
-        scenarios: SIM.rows.map(r => ({ name: r.name, beam_filters: fl(r.bm, r.bt), det_filters: fl(r.dm, r.dt) })) };
+        scenarios: SIM.rows.map(r => ({ name: r.name, beam_filters: [...fixedB, ...fl(r.bm, r.bt)], det_filters: [...fixedD, ...fl(r.dm, r.dt)] })) };
       SIM.result = await api("/api/simulate", body); drawSim();
     } catch (e) { out.replaceChildren(h("div", { class: "err", role: "alert", text: e.message })); }
     go.disabled = false; } }, "Calculate");
   p.append(
     h("p", { class: "hint", text: "Calculates the spectrum the detector sees from the tube, sample, filters, air and detector. No fitting. The first option sets the scale (its total input rate); every other option uses the same scale, so the differences are what the filters do. Peaks are plain Gaussians, so use it to compare filters, not to read absolute rates." }),
-    h("datalist", { id: "sim-mats" }, ...["Kapton", "Mylar", "Polypropylene", "CNT", "Be", "Al", "Ti", "Graphene", "Rh", "Mo", "Zr", "Cu", "Ag"].map(v => h("option", { value: v }))),
+    h("datalist", { id: "sim-mats" }, ...["Kapton", "Mylar", "Polypropylene", "CNT", "Air", "Be", "Al", "Ti", "Graphene", "Rh", "Mo", "Zr", "Cu", "Ag"].map(v => h("option", { value: v }))),
     h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 16px;align-items:center" },
       h("label", { class: "hint", style: "margin:0;display:flex;gap:6px;align-items:center" }, "Anode", h("input", { type: "text", value: SIM.anode, style: "width:44px", oninput: e => { SIM.anode = e.target.value.trim(); } })),
       num("kv", "Tube voltage (kV)"), num("lineShare", "Anode line share", 60), num("tube", "Tube angle from normal (°)", 56), num("det", "Detector angle from normal (°)", 56), num("scat", "Scattering angle (°)", 56)),
     h("div", { class: "row", style: "flex-wrap:wrap;gap:8px 16px;align-items:center;margin-top:8px" },
-      num("air", "Air to detector (mm)", 56), num("spot", "Beam spot (mm)", 56), num("si", "Si thickness (mm)", 56), num("be", "Detector Be window (µm)", 56), num("kcps", "Input rate of option 1 (kcps)", 60), num("emax", "Plot to (keV)", 56), num("ar", "Air argon scale", 56)),
+      num("tbe", "Tube Be window (µm)", 56), num("tair", "Tube to sample air (mm)", 56), num("dch", "Detector CH window (µm)", 56), num("air", "Air to detector (mm)", 56), num("spot", "Beam spot (mm)", 56), num("si", "Si thickness (mm)", 56), num("be", "Detector Be window (µm)", 56), num("kcps", "Input rate of option 1 (kcps)", 60), num("emax", "Plot to (keV)", 56), num("ar", "Air argon scale", 56)),
     h("h3", { text: "Sample" }), sampleBox, h("button", { class: "btn", onclick: () => { SIM.sample.splice(SIM.sample.length - 1, 0, { composition: "", density: "", thickness_um: "" }); drawSample(); } }, "Add layer above the bulk"),
     h("h3", { text: "Filter options" }), rowsBox,
     h("div", { class: "row", style: "gap:8px;margin-top:6px" }, h("button", { class: "btn", onclick: () => { SIM.rows.push({ name: "Option " + (SIM.rows.length + 1), bm: "", bt: "", dm: "", dt: "" }); drawRows(); } }, "Add option"), go),
