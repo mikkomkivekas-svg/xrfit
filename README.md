@@ -206,3 +206,6 @@ The Calibration tab has a drop-down of bundled bulk references (Al 600 ns, Al 10
 
 ### Plot dialogs
 Two temporary plot windows open over the page without changing the main plot (close with the Close button, Esc, or a click outside): **Plot spectrum** in the X-ray tube generator shows the continuum steps and anode lines, and the **Plot** button on each Calibration row shows that spectrum with its fit (or its energy window). Drag to zoom, double-click to reset, and download the data as CSV.
+
+### Kaolinite example
+The **Kaolinite, Al and Si** example loads a kaolinite-on-paper spectrum with Al K and Si K fitted in a local window (1.1 to 2.2 keV) with a sixth-order background. A cubic background over the whole 0.8 to 3.5 keV range stays too high in the valley between the two peaks.

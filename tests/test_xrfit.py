@@ -545,3 +545,12 @@ def test_calibration_plot_data():
                            "signal": {"kind": "roi", "emin": 1.6, "emax": 1.9, "gain": 0.00487, "zero": 0}}, {})
     d = webapp.api_calplot({"index": 1}, {})
     assert d["kind"] == "roi" and len(d["energy"]) == len(d["data"]) and d["window"] == [1.6, 1.9]
+
+
+def test_kaolinite_example():
+    from xrfit import webapp
+    ex = webapp.api_example({}, {"name": ["kaolinite"]})
+    s = ex["suggest"]
+    assert s["elements"] == ["Al-K", "Si-K"] and s["poly_order"] == 6 and (s["emin"], s["emax"]) == (1.1, 2.2)
+    out = webapp.api_fit({"config": s}, {})
+    assert out["chi2red"] < 2.0
